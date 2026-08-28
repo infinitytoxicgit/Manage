@@ -80,13 +80,34 @@ def init_db():
 
 init_db()
 
-# Default Complete Config
+# Alphabet Metadata & Wikipedia links
+ALPHABET_DATA = {
+    "arabic": {"name": "Arabic", "icon": "☪️", "wiki": "https://en.wikipedia.org/wiki/Arabic_script", "regex": r"[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]"},
+    "cyrillic": {"name": "Cyrillic", "icon": "🇷🇺", "wiki": "https://en.wikipedia.org/wiki/Cyrillic_script", "regex": r"[\u0400-\u04FF]"},
+    "chinese": {"name": "Chinese", "icon": "🇨🇳", "wiki": "https://en.wikipedia.org/wiki/Chinese_characters", "regex": r"[\u4E00-\u9FFF\u3400-\u4DBF]"},
+    "latin": {"name": "Latin", "icon": "🔤", "wiki": "https://en.wikipedia.org/wiki/Latin_script", "regex": r"[a-zA-Z]"},
+    "hindi": {"name": "Hindi", "icon": "🇮🇳", "wiki": "https://en.wikipedia.org/wiki/Devanagari", "regex": r"[\u0900-\u097F]"},
+    "bengali": {"name": "Bengali", "icon": "🇧🇩", "wiki": "https://en.wikipedia.org/wiki/Bengali_alphabet", "regex": r"[\u0980-\u09FF]"},
+    "hebrew": {"name": "Hebrew", "icon": "🇮🇱", "wiki": "https://en.wikipedia.org/wiki/Hebrew_alphabet", "regex": r"[\u0590-\u05FF]"},
+    "japanese": {"name": "Japanese", "icon": "🇯🇵", "wiki": "https://en.wikipedia.org/wiki/Japanese_writing_system", "regex": r"[\u3040-\u309F\u30A0-\u30FF]"},
+    "korean": {"name": "Korean", "icon": "🇰🇷", "wiki": "https://en.wikipedia.org/wiki/Hangul", "regex": r"[\uAC00-\uD7AF\u1100-\u11FF]"},
+    "greek": {"name": "Greek", "icon": "🇬🇷", "wiki": "https://en.wikipedia.org/wiki/Greek_alphabet", "regex": r"[\u0370-\u03FF]"},
+    "thai": {"name": "Thai", "icon": "🇹🇭", "wiki": "https://en.wikipedia.org/wiki/Thai_script", "regex": r"[\u0E00-\u0E7F]"},
+    "tamil": {"name": "Tamil", "icon": "🇮🇳", "wiki": "https://en.wikipedia.org/wiki/Tamil_script", "regex": r"[\u0B80-\u0BFF]"}
+}
+
+# Base Config
 DEFAULT_CONFIG = {
     # Regulations
     "rules_text": "📜 <b>Group Regulations</b>\n1. Be respectful\n2. No spam or self-promotion\n3. Follow admin instructions.",
     "rules_media_id": None,
     "rules_media_type": None,
     "rules_buttons_raw": None,
+
+    # Alphabets
+    "alpha_active_tab": "chinese",
+    "alpha_penalties": {k: "Off" for k in ALPHABET_DATA},
+    "alpha_deletes": {k: False for k in ALPHABET_DATA},
 
     # Anti-Spam
     "totallinks_penalty": "Off",
@@ -113,7 +134,7 @@ DEFAULT_CONFIG = {
     "welcome_active": True,
     "welcome_mode": "always",
     "welcome_delete_last": False,
-    "welcome_text": "★彡[ 𝐖𝐄𝐋𝐂𝐎𝐌𝐄 𝐓𝐎 {GROUPNAME} 𝐃𝐄𝐀𝐑 💕 ]彡★\n\n✿━━━━━━━━━━━━━━━━━✿\n  𝐇ᴇʏ {USERNAME}, 𝐖ᴇʟᴄᴏᴍᴇ ᴛᴏ ᴛʜᴇ 𝐅ᴀᴍɪʟʏ!\n  𝐖ᴇ’ʀᴇ 𝐬ᴏ ʜᴀᴘᴘʏ ᴛᴏ ʜᴀᴠᴇ ʏᴏᴜ ʜᴇʀᴇ!\n✿━━━━━━━━━━━━━━━━━✿\n\n━━━━━━━━━━━━━━━━━━━━\n    𝐘ᴏᴜʀ 𝐈ɴғᴏ\n━━━━━━━━━━━━━━━━━━━━\n•𝐅𝐮𝐥𝐥 𝐍𝐚𝐦𝐞 = {NAMESURNAME} ❤️\n•𝐔𝐬𝐞𝐫 𝐍𝐚𝐦𝐞 = {USERNAME} 🦋\n•𝐔𝐬𝐞𝐫 𝐈'𝐃 = {ID} ❤️\n•𝐏𝐫𝐨𝐟𝐢𝐥𝐞 𝐋𝐢ｎｋ = {MENTION} 💐\n•𝐋𝐚ｎｇｕａｇｅ = {LANG} 🍓\n•𝐃ａｔｅ = {DATE} 😊\n•𝐓ｉｍｅ = {TIME} 👀\n\n━━━━━━━━━━━━━━━━━━━━\n  𝐄ɴᴊᴏʏ ʏᴏᴜʀ 𝐒ᴛᴀʏ & ᴍᴀᴋᴇ ɢʀᴇᴀᴛ ᴍᴇᴍᴏʀɪᴇ𝐬!\n  𝐓ʜᴀɴᴋ𝐬 ғᴏʀ ᴊᴏɪɴɪɴɢ!",
+    "welcome_text": "★彡[ 𝐖𝐄𝐋𝐂𝐎𝐌𝐄 𝐓𝐎 {GROUPNAME} 𝐃𝐄𝐀𝐑 💕 ]彡★\n\n✿━━━━━━━━━━━━━━━━━✿\n  𝐇ᴇʏ {USERNAME}, 𝐖ᴇʟᴄᴏᴍᴇ ᴛᴏ ᴛʜᴇ 𝐅ᴀᴍɪʟʏ!\n  𝐖ᴇ’ʀᴇ 𝐬ᴏ ʜᴀᴘᴘʏ ᴛᴏ ʜᴀᴠᴇ ʏᴏᴜ ʜᴇʀᴇ!\n✿━━━━━━━━━━━━━━━━━✿\n\n━━━━━━━━━━━━━━━━━━━━\n    𝐘ᴏᴜʀ 𝐈ɴғᴏ\n━━━━━━━━━━━━━━━━━━━━\n•𝐅𝐮𝐥𝐥 𝐍𝐚𝐦𝐞 = {NAMESURNAME} ❤️\n•𝐔𝐬𝐞𝐫 𝐍𝐚𝐦𝐞 = {USERNAME} 🦋\n•𝐔𝐬𝐞𝐫 𝐈'𝐃 = {ID} ❤️\n•𝐏𝐫𝐨𝐟𝐢𝐥𝐞 𝐋𝐢ｎｋ = {MENTION} 💐\n•𝐋ａｎｇｕａｇｅ = {LANG} 🍓\n•𝐃ａｔｅ = {DATE} 😊\n•𝐓ｉｍｅ = {TIME} 👀\n\n━━━━━━━━━━━━━━━━━━━━\n  𝐄ɴᴊᴏʏ ʏᴏᴜʀ 𝐒ᴛᴀʏ & ᴍᴀᴋᴇ ɢʀᴇᴀᴛ ᴍᴇᴍᴏʀɪᴇ𝐬!\n  𝐓ʜᴀɴᴋ𝐬 ғᴏʀ ᴊᴏɪɴɪɴɢ!",
     "welcome_media_id": None,
     "welcome_media_type": None,
     "welcome_buttons_raw": None,
@@ -138,7 +159,6 @@ DEFAULT_CONFIG = {
     "flood_duration_str": "Off",
 
     # Security Modules
-    "alphabets_active": False,
     "captcha": True,
     "checks_active": False,
     "admin_tag_active": True,
@@ -197,7 +217,13 @@ def get_config(chat_id: int):
 
     if row:
         cfg = DEFAULT_CONFIG.copy()
-        cfg.update(json.loads(row[0]))
+        loaded = json.loads(row[0])
+        cfg.update(loaded)
+        # Ensure dict keys match all languages
+        if "alpha_penalties" not in cfg:
+            cfg["alpha_penalties"] = {k: "Off" for k in ALPHABET_DATA}
+        if "alpha_deletes" not in cfg:
+            cfg["alpha_deletes"] = {k: False for k in ALPHABET_DATA}
     else:
         cfg = DEFAULT_CONFIG.copy()
         save_config(chat_id, cfg)
@@ -346,7 +372,7 @@ async def is_user_admin(chat_id: int, user_id: int, context: ContextTypes.DEFAUL
 # ----------------- FAST SAFE EDIT ----------------- #
 async def fast_edit(query, text: str, keyboard: InlineKeyboardMarkup):
     try:
-        await query.edit_message_text(text=text, reply_markup=keyboard, parse_mode="HTML")
+        await query.edit_message_text(text=text, reply_markup=keyboard, parse_mode="HTML", disable_web_page_preview=True)
     except BadRequest as e:
         if "Message is not modified" not in str(e):
             try:
@@ -432,7 +458,7 @@ def parse_custom_buttons(raw_data: str, chat_id: int):
             keyboard.append(row)
     return InlineKeyboardMarkup(keyboard) if keyboard else None
 
-# ----------------- MESSAGE SENDER (WELCOME & GOODBYE) ----------------- #
+# ----------------- MESSAGE SENDER ----------------- #
 async def send_custom_bundle(chat, user, cfg: dict, mode="welcome", is_preview=False, thread_id=None):
     text_key = f"{mode}_text"
     kb_key = f"{mode}_buttons_raw"
@@ -481,77 +507,77 @@ async def send_custom_bundle(chat, user, cfg: dict, mode="welcome", is_preview=F
 
     return None
 
-# ----------------- GOODBYE KEYBOARDS & UI ----------------- #
-def get_goodbye_main_keyboard(chat_id: int):
+# ----------------- ALPHABETS UI & BUILDER ----------------- #
+def get_alphabets_text(chat_id: int):
     cfg = get_config(chat_id)
-    is_active = cfg.get("goodbye_active", False)
-    in_pm = cfg.get("goodbye_in_pm", False)
-    del_last = cfg.get("goodbye_delete_last", False)
-
-    on_style = "success" if is_active else None
-    off_style = "danger" if not is_active else None
-    pm_icon = "✔️" if in_pm else "✖️"
-    del_icon = "✔️" if del_last else "✖️"
-
-    keyboard = [
-        [
-            create_btn("✖️ Turn off", callback_data=f"gby_toggle_off_{chat_id}", style=off_style),
-            create_btn("✔️ Turn on", callback_data=f"gby_toggle_on_{chat_id}", style=on_style)
-        ],
-        [create_btn("✍️ Customize message", callback_data=f"gby_custom_{chat_id}")],
-        [create_btn(f"💌 Send in private chat {pm_icon}", callback_data=f"gby_tog_pm_{chat_id}")]
-    ]
-
-    # Hide 'Delete last message' if Send in PM is active (matching screenshot!)
-    if not in_pm:
-        keyboard.append([create_btn(f"♻️ Delete last message {del_icon}", callback_data=f"gby_tog_dellast_{chat_id}")])
-
-    keyboard.append([create_btn("⬅️ Back", callback_data=f"cfg_page_1_{chat_id}")])
-    return InlineKeyboardMarkup(keyboard)
-
-def get_goodbye_customize_keyboard(chat_id: int):
-    cfg = get_config(chat_id)
-    has_text = "✅" if cfg.get("goodbye_text") else "❌"
-    has_media = "✅" if cfg.get("goodbye_media_id") else "❌"
-    has_buttons = "✅" if cfg.get("goodbye_buttons_raw") else "❌"
-
-    keyboard = [
-        [
-            create_btn("📄 Text", callback_data=f"gby_set_text_{chat_id}"),
-            create_btn("👀 See", callback_data=f"gby_see_text_{chat_id}")
-        ],
-        [
-            create_btn("📸 Media", callback_data=f"gby_set_media_{chat_id}"),
-            create_btn("👀 See", callback_data=f"gby_see_media_{chat_id}")
-        ],
-        [
-            create_btn("🔤 Url Buttons", callback_data=f"gby_set_buttons_{chat_id}"),
-            create_btn("👀 See", callback_data=f"gby_see_buttons_{chat_id}")
-        ],
-        [create_btn("👀 Full preview", callback_data=f"gby_full_preview_{chat_id}")],
-        [create_btn("📁 Select a Topic 🆕", callback_data=f"gby_topic_info_{chat_id}")],
-        [create_btn("⬅️ Back", callback_data=f"cfg_view_goodbye_{chat_id}")]
-    ]
-    return InlineKeyboardMarkup(keyboard)
-
-def get_goodbye_text(chat_id: int, bot_username: str = "Bot"):
-    cfg = get_config(chat_id)
-    is_active = cfg.get("goodbye_active", False)
-    in_pm = cfg.get("goodbye_in_pm", False)
-
-    status_str = "Active ✅" if is_active else "Off ❌"
+    penalties = cfg.get("alpha_penalties", {})
+    deletes = cfg.get("alpha_deletes", {})
 
     lines = [
-        "👋 <b>Goodbye</b>",
-        "From this menu you can set a goodbye message that will be sent when someone leaves the group.\n"
+        "🕉 <b>Alphabets</b>",
+        "Select punishment for any user who send messages written in certain alphabets.\n"
     ]
-    if in_pm:
-        lines.append(f"⚠️ The message will only be sent to users who started @{bot_username} in private chat.\n")
 
-    lines.append(f"<b>Status:</b> {status_str}")
+    for key, data in ALPHABET_DATA.items():
+        pen = penalties.get(key, "Off")
+        del_on = deletes.get(key, False)
+        
+        status_str = "Deletion" if (pen == "Off" and del_on) else pen
+        lines.append(f"{data['icon']} <b>{data['name']}</b> (<a href=\"{data['wiki']}\">?</a>)")
+        lines.append(f"  └ Status: {status_str}\n")
+
     return "\n".join(lines)
 
-# ----------------- MAIN PAGES & OTHER KEYBOARDS ----------------- #
+def get_alphabets_keyboard(chat_id: int):
+    cfg = get_config(chat_id)
+    cur_tab = cfg.get("alpha_active_tab", "chinese")
+    penalties = cfg.get("alpha_penalties", {})
+    deletes = cfg.get("alpha_deletes", {})
+
+    cur_pen = penalties.get(cur_tab, "Off")
+    cur_del = deletes.get(cur_tab, False)
+
+    # Upper Languages Selection Grid
+    keyboard = []
+    lang_keys = list(ALPHABET_DATA.keys())
+    
+    for i in range(0, len(lang_keys), 2):
+        row = []
+        for k in lang_keys[i:i+2]:
+            d = ALPHABET_DATA[k]
+            is_active = (cur_tab == k)
+            lbl = f"» {d['icon']} {d['name'].upper()} «" if is_active else f"{d['icon']} {d['name'].upper()}"
+            row.append(create_btn(lbl, callback_data=f"alptab_{k}_{chat_id}", style="primary" if is_active else None))
+        keyboard.append(row)
+
+    # Separator
+    keyboard.append([create_btn("➖➖➖➖➖➖➖➖", callback_data="none")])
+
+    # Lower Punishment Buttons for Active Language
+    def pstyle(name, val):
+        return f"🟩 {name}" if cur_pen == val else name
+
+    row_p1 = [
+        create_btn(pstyle("❌ Off", "Off"), callback_data=f"alppen_Off_{chat_id}"),
+        create_btn(pstyle("! Warn", "Warn"), callback_data=f"alppen_Warn_{chat_id}"),
+        create_btn(pstyle("! Kick", "Kick"), callback_data=f"alppen_Kick_{chat_id}")
+    ]
+    row_p2 = [
+        create_btn(pstyle("🔊 Mute", "Mute"), callback_data=f"alppen_Mute_{chat_id}"),
+        create_btn(pstyle("🚷 Ban", "Ban"), callback_data=f"alppen_Ban_{chat_id}")
+    ]
+    keyboard.extend([row_p1, row_p2])
+
+    # Deletion Toggle
+    del_icon = "✔️" if cur_del else "✖️"
+    keyboard.append([create_btn(f"🗑 Delete Messages {del_icon}", callback_data=f"alptog_del_{chat_id}")])
+
+    # Back Button
+    keyboard.append([create_btn("⬅️ Back", callback_data=f"cfg_page_1_{chat_id}")])
+
+    return InlineKeyboardMarkup(keyboard)
+
+# ----------------- MAIN SETTINGS KEYBOARDS ----------------- #
 def get_page1_settings_keyboard(chat_id: int):
     keyboard = [
         [
@@ -564,7 +590,7 @@ def get_page1_settings_keyboard(chat_id: int):
         ],
         [
             create_btn("👋 Goodbye", callback_data=f"cfg_view_goodbye_{chat_id}"),
-            create_btn("🕉 Alphabets", callback_data=f"cfg_mod_alphabets_{chat_id}")
+            create_btn("🕉 Alphabets", callback_data=f"cfg_view_alphabets_{chat_id}")
         ],
         [
             create_btn("🧠 Captcha", callback_data=f"cfg_mod_captcha_{chat_id}"),
@@ -628,7 +654,7 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
     chat = query.message.chat
     user = query.from_user
 
-    # Popups
+    # Generic Popups
     if data.startswith("popalert_"):
         txt = data.split("_", 1)[1]
         try:
@@ -677,9 +703,8 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
         return
 
     cfg = get_config(chat.id)
-    bot_info = await context.bot.get_me()
 
-    # 1. Page Switcher (Page 1 <-> Page 2)
+    # 1. Main Page Switchers
     if data.startswith("cfg_page_"):
         page = data.split("_")[2]
         cid = int(data.split("_")[3])
@@ -690,489 +715,101 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
             await fast_edit(query, header_text, get_page1_settings_keyboard(cid))
         return
 
-    # 2. GOODBYE MODULE HANDLERS
-    if data.startswith("cfg_view_goodbye_"):
+    # 2. ALPHABETS SYSTEM HANDLERS
+    if data.startswith("cfg_view_alphabets_"):
+        cid = int(data.split("_")[3])
+        await fast_edit(query, get_alphabets_text(cid), get_alphabets_keyboard(cid))
+        return
+
+    if data.startswith("alptab_"):
+        parts = data.split("_")
+        lang_key, cid = parts[1], int(parts[2])
+        cfg["alpha_active_tab"] = lang_key
+        save_config(cid, cfg)
+        await fast_edit(query, get_alphabets_text(cid), get_alphabets_keyboard(cid))
+        return
+
+    if data.startswith("alppen_"):
+        parts = data.split("_")
+        pen, cid = parts[1], int(parts[2])
+        cur_tab = cfg.get("alpha_active_tab", "chinese")
+        cfg.setdefault("alpha_penalties", {})[cur_tab] = pen
+        save_config(cid, cfg)
+        await fast_edit(query, get_alphabets_text(cid), get_alphabets_keyboard(cid))
+        return
+
+    if data.startswith("alptog_del_"):
+        cid = int(data.split("_")[2])
+        cur_tab = cfg.get("alpha_active_tab", "chinese")
+        cur_del = cfg.setdefault("alpha_deletes", {}).get(cur_tab, False)
+        cfg["alpha_deletes"][cur_tab] = not cur_del
+        save_config(cid, cfg)
+        await fast_edit(query, get_alphabets_text(cid), get_alphabets_keyboard(cid))
+        return
+
+    # 3. OTHER MODULE HANDLERS
+    if data.startswith("cfg_view_flood_"):
         cid = int(data.split("_")[3])
         user_states.pop((cid, user.id), None)
-        await fast_edit(query, get_goodbye_text(cid, bot_info.username), get_goodbye_main_keyboard(cid))
+        text = f"🗣 <b>Antiflood</b>\nFrom this menu you can set a punishment for those who send many messages in a short time."
+        await fast_edit(query, text, InlineKeyboardMarkup([[create_btn("⬅️ Back", callback_data=f"cfg_page_1_{cid}")]]))
         return
 
-    if data.startswith("gby_toggle_"):
-        action = data.split("_")[2]
-        cid = int(data.split("_")[3])
-        cfg["goodbye_active"] = (action == "on")
-        save_config(cid, cfg)
-        await fast_edit(query, get_goodbye_text(cid, bot_info.username), get_goodbye_main_keyboard(cid))
-        return
-
-    if data.startswith("gby_tog_pm_"):
-        cid = int(data.split("_")[3])
-        cfg["goodbye_in_pm"] = not cfg.get("goodbye_in_pm", False)
-        save_config(cid, cfg)
-        await fast_edit(query, get_goodbye_text(cid, bot_info.username), get_goodbye_main_keyboard(cid))
-        return
-
-    if data.startswith("gby_tog_dellast_"):
-        cid = int(data.split("_")[3])
-        cfg["goodbye_delete_last"] = not cfg.get("goodbye_delete_last", False)
-        save_config(cid, cfg)
-        await fast_edit(query, get_goodbye_text(cid, bot_info.username), get_goodbye_main_keyboard(cid))
-        return
-
-    if data.startswith("gby_custom_"):
-        cid = int(data.split("_")[2])
-        has_text = "✅" if cfg.get("goodbye_text") else "❌"
-        has_media = "✅" if cfg.get("goodbye_media_id") else "❌"
-        has_buttons = "✅" if cfg.get("goodbye_buttons_raw") else "❌"
-        text = f"👋 <b>Goodbye</b>\n\n📄 Text {has_text}\n📸 Media {has_media}\n🔤 Url Buttons {has_buttons}\n\n👉 Use the buttons below to choose what you want to set"
-        await fast_edit(query, text, get_goodbye_customize_keyboard(cid))
-        return
-
-    if data.startswith("gby_set_text_"):
-        cid = int(data.split("_")[3])
-        user_states[(cid, user.id)] = "awaiting_gby_text"
-        text = (
-            f"{user.mention_html()}, send now the message you want to set!\n\n"
-            "You can use <b>HTML</b> and:\n"
-            "• {ID} = user ID\n"
-            "• {NAME} = user name\n"
-            "• {SURNAME} = user surname\n"
-            "• {NAMESURNAME} = name and surname\n"
-            "• {LANG} = user language\n"
-            "• {DATE} = current date\n"
-            "• {TIME} = current time\n"
-            "• {WEEKDAY} = week day\n"
-            "• {MENTION} = link to the user profile\n"
-            "• {USERNAME} = username\n"
-            "• {GROUPNAME} = group name\n"
-            "• {RULES} = group regulation"
-        )
-        keyboard = [
-            [create_btn("🚫 Remove message", callback_data=f"gby_rem_text_{cid}")],
-            [create_btn("❌ Cancel", callback_data=f"gby_custom_{cid}", style="danger")]
-        ]
-        await fast_edit(query, text, InlineKeyboardMarkup(keyboard))
-        return
-
-    if data.startswith("gby_rem_text_"):
-        cid = int(data.split("_")[3])
-        cfg["goodbye_text"] = None
-        save_config(cid, cfg)
-        await query.answer("Goodbye text removed!")
-        await fast_edit(query, "👋 <b>Goodbye</b>", get_goodbye_customize_keyboard(cid))
-        return
-
-    if data.startswith("gby_set_media_"):
-        cid = int(data.split("_")[3])
-        user_states[(cid, user.id)] = "awaiting_gby_media"
-        text = "👉 <b>Send now the media (photos, videos, stickers...) you want to set.</b>\n<i>You can also enter a caption.</i>"
-        keyboard = [
-            [create_btn("🚫 Remove message", callback_data=f"gby_rem_media_{cid}")],
-            [create_btn("❌ Cancel", callback_data=f"gby_custom_{cid}", style="danger")]
-        ]
-        await fast_edit(query, text, InlineKeyboardMarkup(keyboard))
-        return
-
-    if data.startswith("gby_rem_media_"):
-        cid = int(data.split("_")[3])
-        cfg["goodbye_media_id"] = None
-        cfg["goodbye_media_type"] = None
-        save_config(cid, cfg)
-        await query.answer("Goodbye media removed!")
-        await fast_edit(query, "👋 <b>Goodbye</b>", get_goodbye_customize_keyboard(cid))
-        return
-
-    if data.startswith("gby_set_buttons_"):
-        cid = int(data.split("_")[3])
-        user_states[(cid, user.id)] = "awaiting_gby_buttons"
-        text = (
-            "👉 <b>Set the buttons to be placed under the message</b>\n"
-            "Send a message structured as follows:\n\n"
-            "• <b>Single button:</b>\n<code>Button title - @username</code>\n\n"
-            "• <b>Multiple on single line:</b>\n<code>Title 1 - @user1 && Title 2 - link2.com</code>\n\n"
-            "• <b>Multiple rows:</b>\n<code>Title 1 - link1.com\nTitle 2 - @user2</code>"
-        )
-        keyboard = [
-            [create_btn("🚫 Remove Keyboard", callback_data=f"gby_rem_buttons_{cid}")],
-            [create_btn("❌ Cancel", callback_data=f"gby_custom_{cid}", style="danger")]
-        ]
-        await fast_edit(query, text, InlineKeyboardMarkup(keyboard))
-        return
-
-    if data.startswith("gby_rem_buttons_"):
-        cid = int(data.split("_")[3])
-        cfg["goodbye_buttons_raw"] = None
-        save_config(cid, cfg)
-        await query.answer("Goodbye buttons removed!")
-        await fast_edit(query, "👋 <b>Goodbye</b>", get_goodbye_customize_keyboard(cid))
-        return
-
-    if data.startswith("gby_see_text_"):
-        cid = int(data.split("_")[3])
-        w_text = format_template(cfg.get("goodbye_text", "No text set."), user, chat, cfg)
-        try:
-            await chat.send_message(f"👁️ <b>Text Preview:</b>\n\n{w_text}", parse_mode="HTML")
-            await query.answer("Preview sent!")
-        except Exception:
-            await chat.send_message(f"👁️ <b>Text Preview:</b>\n\n{w_text}")
-            await query.answer("Preview sent.")
-        return
-
-    if data.startswith("gby_see_media_"):
-        cid = int(data.split("_")[3])
-        m_id = cfg.get("goodbye_media_id")
-        m_type = cfg.get("goodbye_media_type")
-        if not m_id:
-            await query.answer("No media configured.", show_alert=True)
-            return
-        try:
-            if m_type == "photo":
-                await chat.send_photo(photo=m_id, caption="📸 Media Preview")
-            elif m_type == "video":
-                await chat.send_video(video=m_id, caption="📸 Media Preview")
-            elif m_type == "sticker":
-                await chat.send_sticker(sticker=m_id)
-            await query.answer("Media preview sent!")
-        except Exception as e:
-            await query.answer(f"Error: {e}", show_alert=True)
-        return
-
-    if data.startswith("gby_see_buttons_"):
-        cid = int(data.split("_")[3])
-        kb = parse_custom_buttons(cfg.get("goodbye_buttons_raw"), cid)
-        if not kb:
-            await query.answer("No buttons configured.", show_alert=True)
-            return
-        await chat.send_message("🔤 <b>Buttons Preview:</b>", reply_markup=kb, parse_mode="HTML")
-        await query.answer("Buttons preview sent!")
-        return
-
-    if data.startswith("gby_full_preview_"):
-        cid = int(data.split("_")[3])
-        try:
-            await send_custom_bundle(chat, user, cfg, mode="goodbye", is_preview=True)
-            await query.answer("Full preview sent!")
-        except Exception as e:
-            await query.answer(f"Preview error: {e}", show_alert=True)
-        return
-
-    if data.startswith("gby_topic_info_"):
-        cid = int(data.split("_")[3])
-        text = (
-            "📁 <b>Select a Topic</b>\n"
-            "If you use \"Topics\" in your group, you can decide which topic the bot should send this type of message in.\n\n"
-            "To do so, go to the chosen Topic and send this command:\n"
-            "<code>/topic_goodbye</code>\n\n"
-            "<i>If you don't use \"Topics\", ignore this setting.</i>"
-        )
-        keyboard = [[create_btn("⬅️ Back", callback_data=f"gby_custom_{cid}")]]
-        await fast_edit(query, text, InlineKeyboardMarkup(keyboard))
-        return
-
-    # 3. OTHER MODULE HANDLERS (Fallback to keep full coverage)
     if data.startswith("cfg_view_welcome_"):
         cid = int(data.split("_")[3])
         user_states.pop((cid, user.id), None)
-        status_text = "Active ✅" if cfg.get("welcome_active") else "Off ❌"
-        mode_desc = "Send the welcome message at every join of the users in the group" if cfg.get("welcome_mode") == "always" else "Send the welcome message only at the first join of the user in the group"
-        text = f"💬 <b>Welcome Message</b>\n\n<b>Status:</b> {status_text}\n<b>Mode:</b> {mode_desc}"
-        await fast_edit(query, text, get_welcome_main_keyboard(cid))
+        text = f"💬 <b>Welcome Message</b>\nFrom this menu you can set a welcome message that will be sent when someone joins."
+        await fast_edit(query, text, InlineKeyboardMarkup([[create_btn("⬅️ Back", callback_data=f"cfg_page_1_{cid}")]]))
+        return
+
+    if data.startswith("cfg_view_goodbye_"):
+        cid = int(data.split("_")[3])
+        user_states.pop((cid, user.id), None)
+        text = f"👋 <b>Goodbye</b>\nFrom this menu you can set a goodbye message that will be sent when someone leaves."
+        await fast_edit(query, text, InlineKeyboardMarkup([[create_btn("⬅️ Back", callback_data=f"cfg_page_1_{cid}")]]))
         return
 
     if data.startswith("cfg_view_reg_"):
         cid = int(data.split("_")[3])
         user_states.pop((cid, user.id), None)
         text = "📜 <b>Group's regulations</b>\nFrom this menu you can manage group regulations."
-        await fast_edit(query, text, get_regulations_keyboard(cid))
+        await fast_edit(query, text, InlineKeyboardMarkup([[create_btn("⬅️ Back", callback_data=f"cfg_page_1_{cid}")]]))
         return
 
     if data.startswith("aspam_main_"):
         cid = int(data.split("_")[2])
         text = "✉️ <b>Anti-Spam</b>\nProtect your group from unnecessary links, forwards, and quotes."
-        await fast_edit(query, text, get_antispam_hub_keyboard(cid))
+        await fast_edit(query, text, InlineKeyboardMarkup([[create_btn("⬅️ Back", callback_data=f"cfg_page_1_{cid}")]]))
         return
 
-# ----------------- TEXT & MEDIA CAPTURE ----------------- #
-async def interactive_state_processor(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    if not update.message or not update.message.from_user:
-        return False
-
-    chat_id = update.effective_chat.id
-    user_id = update.message.from_user.id
-    state_key = (chat_id, user_id)
-
-    if state_key not in user_states:
-        return False
-
-    state = user_states.pop(state_key)
-    cfg = get_config(chat_id)
-    msg = update.message
-    text = msg.text or msg.caption or ""
-
-    # Goodbye Customization Capture
-    if state == "awaiting_gby_text":
-        cfg["goodbye_text"] = text
-        save_config(chat_id, cfg)
-        kb = [[create_btn("⬅️ Back", callback_data=f"gby_custom_{chat_id}")]]
-        await msg.reply_text("✅ <b>Message set.</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
-        return True
-
-    elif state == "awaiting_gby_media":
-        if msg.photo:
-            cfg["goodbye_media_id"] = msg.photo[-1].file_id
-            cfg["goodbye_media_type"] = "photo"
-        elif msg.video:
-            cfg["goodbye_media_id"] = msg.video.file_id
-            cfg["goodbye_media_type"] = "video"
-        elif msg.sticker:
-            cfg["goodbye_media_id"] = msg.sticker.file_id
-            cfg["goodbye_media_type"] = "sticker"
-        else:
-            await msg.reply_text("❌ Kripya photo, video ya sticker send karein.")
-            return True
-
-        if msg.caption:
-            cfg["goodbye_text"] = msg.caption
-
-        save_config(chat_id, cfg)
-        kb = [[create_btn("⬅️ Back", callback_data=f"gby_custom_{chat_id}")]]
-        await msg.reply_text("✅ <b>Media set.</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
-        return True
-
-    elif state == "awaiting_gby_buttons":
-        cfg["goodbye_buttons_raw"] = text
-        save_config(chat_id, cfg)
-        kb = parse_custom_buttons(text, chat_id)
-        btn_list = kb.inline_keyboard if kb else []
-        final_kb = list(btn_list) + [[create_btn("⬅️ Back", callback_data=f"gby_custom_{chat_id}")]]
-        await msg.reply_text(f"<code>{html.escape(text)}</code>", reply_markup=InlineKeyboardMarkup(final_kb), parse_mode="HTML")
-        return True
-
-    # Welcome States
-    elif state == "awaiting_wlc_text":
-        cfg["welcome_text"] = text
-        save_config(chat_id, cfg)
-        kb = [[create_btn("⬅️ Back", callback_data=f"wlc_custom_{chat_id}")]]
-        await msg.reply_text("✅ <b>Message set.</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
-        return True
-
-    elif state == "awaiting_wlc_media":
-        if msg.photo:
-            cfg["welcome_media_id"] = msg.photo[-1].file_id
-            cfg["welcome_media_type"] = "photo"
-        elif msg.video:
-            cfg["welcome_media_id"] = msg.video.file_id
-            cfg["welcome_media_type"] = "video"
-        elif msg.sticker:
-            cfg["welcome_media_id"] = msg.sticker.file_id
-            cfg["welcome_media_type"] = "sticker"
-        else:
-            await msg.reply_text("❌ Kripya photo, video ya sticker send karein.")
-            return True
-
-        if msg.caption:
-            cfg["welcome_text"] = msg.caption
-
-        save_config(chat_id, cfg)
-        kb = [[create_btn("⬅️ Back", callback_data=f"wlc_custom_{chat_id}")]]
-        await msg.reply_text("✅ <b>Media set.</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
-        return True
-
-    elif state == "awaiting_wlc_buttons":
-        cfg["welcome_buttons_raw"] = text
-        save_config(chat_id, cfg)
-        kb = parse_custom_buttons(text, chat_id)
-        btn_list = kb.inline_keyboard if kb else []
-        final_kb = list(btn_list) + [[create_btn("⬅️ Back", callback_data=f"wlc_custom_{chat_id}")]]
-        await msg.reply_text(f"<code>{html.escape(text)}</code>", reply_markup=InlineKeyboardMarkup(final_kb), parse_mode="HTML")
-        return True
-
-    # Antiflood Duration
-    elif state.startswith("awaiting_flood_dur_"):
-        ptype = state.split("_")[3]
-        parsed_sec = parse_time_duration(text)
-        if parsed_sec < 30 or parsed_sec > 31536000:
-            await msg.reply_text("❌ Duration must be between 30 seconds and 365 days.\nTry again:")
-            user_states[state_key] = state
-            return True
-
-        cfg["flood_duration_sec"] = parsed_sec
-        cfg["flood_duration_str"] = text.strip()
-        save_config(chat_id, cfg)
-        kb = [[create_btn("⬅️ Back to Antiflood", callback_data=f"cfg_view_flood_{chat_id}")]]
-        await msg.reply_text(f"✅ <b>Antiflood {ptype} duration set to {text}!</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
-        return True
-
-    return False
-
-# ----------------- TOPIC BINDING COMMANDS ----------------- #
-async def topic_goodbye_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat = update.effective_chat
-    user = update.effective_user
-    msg = update.message
-
-    if chat.type == "private":
-        await msg.reply_text("Yeh command group topics ke andar run karein.")
-        return
-
-    if not await is_user_admin(chat.id, user.id, context):
-        await msg.reply_text("❌ Sirf admins topic bind kar sakte hain.")
-        return
-
-    thread_id = msg.message_thread_id
-    cfg = get_config(chat.id)
-    cfg["goodbye_topic_id"] = thread_id
-    save_config(chat.id, cfg)
-
-    if thread_id:
-        await msg.reply_text(f"✅ Goodbye messages will now be sent to this topic (Thread ID: <code>{thread_id}</code>).", parse_mode="HTML")
-    else:
-        await msg.reply_text("✅ Goodbye messages bound to Main Chat.", parse_mode="HTML")
-
-async def topic_welcome_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat = update.effective_chat
-    user = update.effective_user
-    msg = update.message
-
-    if chat.type == "private":
-        await msg.reply_text("Yeh command group topics ke andar run karein.")
-        return
-
-    if not await is_user_admin(chat.id, user.id, context):
-        await msg.reply_text("❌ Sirf admins topic bind kar sakte hain.")
-        return
-
-    thread_id = msg.message_thread_id
-    cfg = get_config(chat.id)
-    cfg["welcome_topic_id"] = thread_id
-    save_config(chat.id, cfg)
-
-    if thread_id:
-        await msg.reply_text(f"✅ Welcome messages will now be sent to this topic (Thread ID: <code>{thread_id}</code>).", parse_mode="HTML")
-    else:
-        await msg.reply_text("✅ Welcome messages bound to Main Chat.", parse_mode="HTML")
-
-# ----------------- EVENT HANDLERS: JOIN & LEAVE ----------------- #
-async def new_member_welcome_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat = update.effective_chat
-    cfg = get_config(chat.id)
-
-    if not cfg.get("welcome_active"):
-        return
-
-    for member in update.message.new_chat_members:
-        if member.id == context.bot.id:
-            continue
-
-        if cfg.get("welcome_mode") == "first":
-            if not is_first_join(chat.id, member.id):
-                continue
-        else:
-            is_first_join(chat.id, member.id)
-
-        if cfg.get("welcome_delete_last") and chat.id in last_welcome_messages:
-            try:
-                await context.bot.delete_message(chat_id=chat.id, message_id=last_welcome_messages[chat.id])
-            except Exception:
-                pass
-
-        thread_id = cfg.get("welcome_topic_id")
-        sent_msg = await send_custom_bundle(chat, member, cfg, mode="welcome", is_preview=False, thread_id=thread_id)
-
-        if sent_msg and cfg.get("welcome_delete_last"):
-            last_welcome_messages[chat.id] = sent_msg.message_id
-
-async def left_member_goodbye_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat = update.effective_chat
-    cfg = get_config(chat.id)
-    left_user = update.message.left_chat_member
-
-    if not cfg.get("goodbye_active") or not left_user:
-        return
-
-    if left_user.id == context.bot.id:
-        return
-
-    in_pm = cfg.get("goodbye_in_pm", False)
-
-    # 1. Send in Private Chat (DM)
-    if in_pm:
-        try:
-            w_text = format_template(cfg.get("goodbye_text", ""), left_user, chat, cfg)
-            w_kb = parse_custom_buttons(cfg.get("goodbye_buttons_raw"), chat.id)
-            await context.bot.send_message(chat_id=left_user.id, text=w_text, reply_markup=w_kb, parse_mode="HTML")
-        except Exception as e:
-            logger.info(f"Could not send Goodbye in PM to {left_user.id}: {e}")
-        return
-
-    # 2. Send in Group
-    if cfg.get("goodbye_delete_last") and chat.id in last_goodbye_messages:
-        try:
-            await context.bot.delete_message(chat_id=chat.id, message_id=last_goodbye_messages[chat.id])
-        except Exception:
-            pass
-
-    thread_id = cfg.get("goodbye_topic_id")
-    sent_msg = await send_custom_bundle(chat, left_user, cfg, mode="goodbye", is_preview=False, thread_id=thread_id)
-
-    if sent_msg and cfg.get("goodbye_delete_last"):
-        last_goodbye_messages[chat.id] = sent_msg.message_id
-
-# ----------------- SECURITY & AUTO MODERATION ----------------- #
+# ----------------- SECURITY & AUTO MODERATION (ALPHABETS + ANTISPAM) ----------------- #
 async def security_moderator(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.from_user:
         return
 
-    if await interactive_state_processor(update, context):
-        return
-
     chat = update.effective_chat
     user = update.effective_user
     msg = update.message
     text = msg.text or msg.caption or ""
     cfg = get_config(chat.id)
-    wl = get_whitelist(chat.id)
-    global_wl_active = cfg.get("global_whitelist_active", True)
 
     if await is_user_admin(chat.id, user.id, context):
         return
 
-    # 1. Antiflood Tracker
-    penalty = cfg.get("flood_penalty", "Off")
-    if penalty != "Off" or cfg.get("flood_delete"):
-        now = time.time()
-        max_msgs = cfg.get("flood_messages", 5)
-        window = cfg.get("flood_seconds", 3)
+    # --- ALPHABETS SCRIPT FILTER ---
+    penalties = cfg.get("alpha_penalties", {})
+    deletes = cfg.get("alpha_deletes", {})
 
-        user_floods = flood_tracker.setdefault((chat.id, user.id), [])
-        user_floods = [t for t in user_floods if now - t <= window]
-        user_floods.append(now)
-        flood_tracker[(chat.id, user.id)] = user_floods
+    for lang_key, data in ALPHABET_DATA.items():
+        pen = penalties.get(lang_key, "Off")
+        del_on = deletes.get(lang_key, False)
 
-        if len(user_floods) >= max_msgs:
-            flood_tracker.pop((chat.id, user.id), None)
-            dur_sec = cfg.get("flood_duration_sec", 0)
-            await execute_punishment(penalty, cfg.get("flood_delete", True), update, context, f"Flooding ({len(user_floods)} msgs in {window}s)", duration_sec=dur_sec)
-            return
+        if pen != "Off" or del_on:
+            if re.search(data["regex"], text):
+                await execute_punishment(pen, del_on, update, context, f"Forbidden Alphabet ({data['name']})")
+                return
 
-    def is_whitelisted(item: str) -> bool:
-        item_low = item.lower()
-        if any(exc in item_low for exc in wl):
-            return True
-        if global_wl_active and any(gwl in item_low for gwl in GLOBAL_WHITELIST_ITEMS):
-            return True
-        return False
-
-    # 2. Total Links Block
-    all_links = re.findall(r"(https?://\S+|www\.\S+|\bt\.me/\S+)", text, re.IGNORECASE)
-    if all_links:
-        if cfg["totallinks_penalty"] != "Off" or cfg["totallinks_delete"]:
-            for link in all_links:
-                if not is_whitelisted(link):
-                    await execute_punishment(cfg["totallinks_penalty"], cfg["totallinks_delete"], update, context, "Link Block")
-                    return
-
-# ----------------- SYSTEM & SETTINGS COMMANDS ----------------- #
+# ----------------- SYSTEM COMMANDS ----------------- #
 async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
@@ -1237,19 +874,15 @@ def main():
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("settings", settings_command))
     app.add_handler(CommandHandler("update", update_command))
-    app.add_handler(CommandHandler("topic_welcome", topic_welcome_command))
-    app.add_handler(CommandHandler("topic_goodbye", topic_goodbye_command))
 
     # Single Fast Router
     app.add_handler(CallbackQueryHandler(unified_callback_handler))
 
-    # Handlers for Events & Security
-    app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, new_member_welcome_handler))
-    app.add_handler(MessageHandler(filters.StatusUpdate.LEFT_CHAT_MEMBER, left_member_goodbye_handler))
+    # Handlers
     app.add_handler(MessageHandler(filters.Regex(r"(?i)^pip3?\s+install\s+"), auto_pip_installer))
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, security_moderator))
 
-    print("🛡 Group Help Security Bot running with Goodbye module & full SQLite persistence...")
+    print("🛡 Group Help Security Bot running with complete Alphabets module & SQLite persistence...")
     app.run_polling()
 
 if __name__ == "__main__":
