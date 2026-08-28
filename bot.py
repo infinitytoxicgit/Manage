@@ -4,6 +4,7 @@ import subprocess
 import logging
 import re
 import time
+import html
 import datetime
 import urllib.parse
 from dotenv import load_dotenv
@@ -47,8 +48,8 @@ admin_cache = {}
 user_states = {}
 link_drafts = {}
 active_created_links = {}
-joined_members_history = {}  # {chat_id: set(user_ids)}
-last_welcome_messages = {}   # {chat_id: message_id}
+joined_members_history = {}
+last_welcome_messages = {}
 
 GLOBAL_WHITELIST_ITEMS = {"telegram.org", "t.me/telegram", "durov", "fragment.com"}
 
@@ -87,10 +88,10 @@ def get_default_config():
         "rules_buttons_raw": None,
 
         # Welcome System
-        "welcome_active": False,
-        "welcome_mode": "always",  # "always" or "first"
+        "welcome_active": True,
+        "welcome_mode": "always",
         "welcome_delete_last": False,
-        "welcome_text": "Hello {NAME}, welcome to {GROUPNAME}!",
+        "welcome_text": "★彡[ 𝐖𝐄𝐋𝐂𝐎𝐌𝐄 𝐓𝐎 {GROUPNAME} 𝐃𝐄𝐀𝐑 💕 ]彡★\n\n✿━━━━━━━━━━━━━━━━━✿\n  𝐇ᴇʏ {USERNAME}, 𝐖ᴇʟᴄᴏᴍᴇ ᴛᴏ ᴛʜᴇ 𝐅ᴀᴍɪʟʏ!\n  𝐖ᴇ’ʀᴇ 𝐬ᴏ ʜᴀᴘᴘʏ ᴛᴏ ʜᴀᴠᴇ ʏᴏᴜ ʜᴇʀᴇ!\n✿━━━━━━━━━━━━━━━━━✿\n\n━━━━━━━━━━━━━━━━━━━━\n    𝐘ᴏᴜʀ 𝐈ɴғᴏ\n━━━━━━━━━━━━━━━━━━━━\n•𝐅𝐮𝐥𝐥 𝐍𝐚𝐦𝐞 = {NAMESURNAME} ❤️\n•𝐔𝐬𝐞𝐫 𝐍𝐚𝐦𝐞 = {USERNAME} 🦋\n•𝐔𝐬𝐞𝐫 𝐈'𝐃 = {ID} ❤️\n•𝐏𝐫𝐨𝐟𝐢𝐥𝐞 𝐋𝐢𝐧𝐤 = {MENTION} 💐\n•𝐋𝐚𝐧𝐠𝐮𝐚𝐠𝐞 = {LANG} 🍓\n•𝐃𝐚𝐭𝐞 = {DATE} 😊\n•𝐓𝐢𝐦𝐞 = {TIME} 👀\n\n━━━━━━━━━━━━━━━━━━━━\n  𝐄ɴᴊᴏʏ ʏᴏᴜʀ 𝐒ᴛᴀʏ & ᴍᴀᴋᴇ ɢʀᴇᴀᴛ ᴍᴇᴍᴏʀɪᴇ𝐬!\n  𝐓ʜᴀɴᴋ𝐬 ғᴏʀ ᴊᴏɪɴɪɴɢ!",
         "welcome_media_id": None,
         "welcome_media_type": None,
         "welcome_buttons_raw": None,
@@ -191,23 +192,34 @@ def format_template(text: str, user, chat, cfg: dict):
     if not text:
         return ""
     now = datetime.datetime.now()
+    first_name = user.first_name or ""
+    last_name = user.last_name or ""
+    full_name = f"{first_name} {last_name}".strip()
+    mention_link = f'<a href="tg://user?id={user.id}">{html.escape(first_name)}</a>'
+    user_handle = f"@{user.username}" if user.username else mention_link
+
+    group_title = html.escape(chat.title) if chat and chat.title else "Group"
+    rules_content = cfg.get("rules_text", "")
+
     replacements = {
         "{ID}": str(user.id),
-        "{NAME}": user.first_name or "",
-        "{SURNAME}": user.last_name or "",
-        "{NAMESURNAME}": f"{user.first_name or ''} {user.last_name or ''}".strip(),
-        "{LANG}": user.language_code or "en",
+        "{NAME}": html.escape(first_name),
+        "{SURNAME}": html.escape(last_name),
+        "{NAMESURNAME}": html.escape(full_name),
+        "{LANG}": html.escape(user.language_code or "en"),
         "{DATE}": now.strftime("%d/%m/%Y"),
         "{TIME}": now.strftime("%H:%M:%S"),
         "{WEEKDAY}": now.strftime("%A"),
-        "{MENTION}": user.mention_html(),
-        "{USERNAME}": f"@{user.username}" if user.username else user.first_name,
-        "{GROUPNAME}": chat.title if chat else "Group",
-        "{RULES}": cfg.get("rules_text", "")
+        "{MENTION}": mention_link,
+        "{USERNAME}": user_handle,
+        "{GROUPNAME}": group_title,
+        "{RULES}": rules_content
     }
-    for k, v in replacements.items():
-        text = text.replace(k, str(v))
-    return text
+
+    formatted = text
+    for placeholder, val in replacements.items():
+        formatted = formatted.replace(placeholder, str(val))
+    return formatted
 
 # ----------------- BUTTONS PARSER ----------------- #
 def parse_custom_buttons(raw_data: str, chat_id: int):
@@ -270,11 +282,6 @@ def get_welcome_main_keyboard(chat_id: int):
     return InlineKeyboardMarkup(keyboard)
 
 def get_welcome_customize_keyboard(chat_id: int):
-    cfg = get_config(chat_id)
-    has_text = "✅" if cfg.get("welcome_text") else "❌"
-    has_media = "✅" if cfg.get("welcome_media_id") else "❌"
-    has_buttons = "✅" if cfg.get("welcome_buttons_raw") else "❌"
-
     keyboard = [
         [
             create_btn("📄 Text", callback_data=f"wlc_set_text_{chat_id}"),
@@ -597,7 +604,6 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
     chat = query.message.chat
     user = query.from_user
 
-    # Revoke Link Handler
     if data.startswith("rvk_"):
         link_id = data.split("_")[1]
         link_info = active_created_links.get(link_id)
@@ -627,7 +633,6 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
             await query.answer(f"Failed to revoke link: {e}", show_alert=True)
         return
 
-    # Popups
     if data.startswith("popalert_"):
         txt = data.split("_", 1)[1]
         try:
@@ -964,11 +969,16 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
         await fast_edit(query, "💬 <b>Welcome Message</b>", get_welcome_customize_keyboard(cid))
         return
 
-    # Welcome Individual & Full Previews
+    # Welcome Previews
     if data.startswith("wlc_see_text_"):
         cid = int(data.split("_")[3])
         w_text = format_template(cfg.get("welcome_text", "No text set."), user, chat, cfg)
-        await query.answer(f"Text Preview:\n{w_text[:200]}", show_alert=True)
+        try:
+            await chat.send_message(f"👁️ <b>Text Preview:</b>\n\n{w_text}", parse_mode="HTML")
+            await query.answer("Preview sent!")
+        except Exception as e:
+            await chat.send_message(f"👁️ <b>Text Preview (Plain):</b>\n\n{w_text}")
+            await query.answer("Preview sent plain text.")
         return
 
     if data.startswith("wlc_see_media_"):
@@ -1009,18 +1019,22 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
 
         try:
             if m_type == "photo":
-                await chat.send_photo(photo=m_id, caption=f"👁️ <b>WELCOME PREVIEW:</b>\n\n{w_text}", reply_markup=w_kb, parse_mode="HTML")
+                await chat.send_photo(photo=m_id, caption=w_text, reply_markup=w_kb, parse_mode="HTML")
             elif m_type == "video":
-                await chat.send_video(video=m_id, caption=f"👁️ <b>WELCOME PREVIEW:</b>\n\n{w_text}", reply_markup=w_kb, parse_mode="HTML")
+                await chat.send_video(video=m_id, caption=w_text, reply_markup=w_kb, parse_mode="HTML")
             elif m_type == "sticker":
                 await chat.send_sticker(sticker=m_id)
                 if w_text:
-                    await chat.send_message(f"👁️ <b>WELCOME PREVIEW:</b>\n\n{w_text}", reply_markup=w_kb, parse_mode="HTML")
+                    await chat.send_message(w_text, reply_markup=w_kb, parse_mode="HTML")
             else:
-                await chat.send_message(f"👁️ <b>WELCOME PREVIEW:</b>\n\n{w_text}", reply_markup=w_kb, parse_mode="HTML")
+                if w_text:
+                    await chat.send_message(w_text, reply_markup=w_kb, parse_mode="HTML")
             await query.answer("Full preview sent!")
         except Exception as e:
-            await query.answer(f"Full preview error: {e}", show_alert=True)
+            # Fallback without HTML if custom symbols broken
+            if w_text:
+                await chat.send_message(w_text, reply_markup=w_kb)
+            await query.answer("Full preview sent (Safe Mode).")
         return
 
     if data.startswith("wlc_topic_info_"):
@@ -1345,12 +1359,8 @@ async def interactive_state_processor(update: Update, context: ContextTypes.DEFA
     # Regulations States
     if state == "awaiting_reg_text":
         cfg["rules_text"] = text
-        try:
-            await msg.delete()
-        except Exception:
-            pass
-        kb = [[create_btn("⬅️ Back to Regulations", callback_data=f"cfg_view_reg_{chat_id}")]]
-        await msg.reply_text("✅ <b>Regulations message updated successfully!</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
+        kb = [[create_btn("⬅️ Back", callback_data=f"cfg_view_reg_{chat_id}")]]
+        await msg.reply_text("✅ <b>Message set.</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
         return True
 
     elif state == "awaiting_reg_media":
@@ -1370,33 +1380,21 @@ async def interactive_state_processor(update: Update, context: ContextTypes.DEFA
         if msg.caption:
             cfg["rules_text"] = msg.caption
 
-        try:
-            await msg.delete()
-        except Exception:
-            pass
-        kb = [[create_btn("⬅️ Back to Regulations", callback_data=f"cfg_view_reg_{chat_id}")]]
-        await msg.reply_text(f"✅ <b>Regulations media ({cfg['rules_media_type']}) saved!</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
+        kb = [[create_btn("⬅️ Back", callback_data=f"cfg_view_reg_{chat_id}")]]
+        await msg.reply_text("✅ <b>Media set.</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
         return True
 
     elif state == "awaiting_reg_buttons":
         cfg["rules_buttons_raw"] = text
-        try:
-            await msg.delete()
-        except Exception:
-            pass
-        kb = [[create_btn("⬅️ Back to Regulations", callback_data=f"cfg_view_reg_{chat_id}")]]
-        await msg.reply_text("✅ <b>Interactive buttons saved!</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
+        kb = [[create_btn("⬅️ Back", callback_data=f"cfg_view_reg_{chat_id}")]]
+        await msg.reply_text("✅ <b>Buttons set.</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
         return True
 
-    # Welcome States
+    # Welcome States (Matches exact screenshot flow)
     elif state == "awaiting_wlc_text":
         cfg["welcome_text"] = text
-        try:
-            await msg.delete()
-        except Exception:
-            pass
-        kb = [[create_btn("⬅️ Back to Welcome Customize", callback_data=f"wlc_custom_{chat_id}")]]
-        await msg.reply_text("✅ <b>Welcome text message updated successfully!</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
+        kb = [[create_btn("⬅️ Back", callback_data=f"wlc_custom_{chat_id}")]]
+        await msg.reply_text("✅ <b>Message set.</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
         return True
 
     elif state == "awaiting_wlc_media":
@@ -1416,22 +1414,14 @@ async def interactive_state_processor(update: Update, context: ContextTypes.DEFA
         if msg.caption:
             cfg["welcome_text"] = msg.caption
 
-        try:
-            await msg.delete()
-        except Exception:
-            pass
-        kb = [[create_btn("⬅️ Back to Welcome Customize", callback_data=f"wlc_custom_{chat_id}")]]
-        await msg.reply_text(f"✅ <b>Welcome media ({cfg['welcome_media_type']}) saved!</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
+        kb = [[create_btn("⬅️ Back", callback_data=f"wlc_custom_{chat_id}")]]
+        await msg.reply_text("✅ <b>Media set.</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
         return True
 
     elif state == "awaiting_wlc_buttons":
         cfg["welcome_buttons_raw"] = text
-        try:
-            await msg.delete()
-        except Exception:
-            pass
-        kb = [[create_btn("⬅️ Back to Welcome Customize", callback_data=f"wlc_custom_{chat_id}")]]
-        await msg.reply_text("✅ <b>Welcome buttons saved!</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
+        kb = [[create_btn("⬅️ Back", callback_data=f"wlc_custom_{chat_id}")]]
+        await msg.reply_text("✅ <b>Buttons set.</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
         return True
 
     # Whitelist States
@@ -1443,10 +1433,6 @@ async def interactive_state_processor(update: Update, context: ContextTypes.DEFA
             clean = line.replace("https://", "").replace("http://", "").replace("@", "")
             wl.add(clean)
             added.append(clean)
-        try:
-            await msg.delete()
-        except Exception:
-            pass
         res = f"✅ <b>{len(added)} Link(s) added to Whitelist!</b>\n\n" + "\n".join([f"• <code>{x}</code>" for x in added])
         kb = [[create_btn("⬅️ Back to Exceptions", callback_data=f"asexc_main_{chat_id}")]]
         await msg.reply_text(res, reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
@@ -1463,10 +1449,6 @@ async def interactive_state_processor(update: Update, context: ContextTypes.DEFA
                 removed.append(clean)
             else:
                 not_found.append(clean)
-        try:
-            await msg.delete()
-        except Exception:
-            pass
         res = ""
         if removed:
             res += f"❌ <b>Removed {len(removed)} item(s):</b>\n" + "\n".join([f"• <code>{x}</code>" for x in removed]) + "\n\n"
@@ -1579,20 +1561,17 @@ async def new_member_welcome_handler(update: Update, context: ContextTypes.DEFAU
         if member.id == context.bot.id:
             continue
 
-        # Check 1st Join vs Always send
         joined_history = joined_members_history.setdefault(chat.id, set())
         if cfg.get("welcome_mode") == "first" and member.id in joined_history:
             continue
         joined_history.add(member.id)
 
-        # Delete previous welcome if enabled
         if cfg.get("welcome_delete_last") and chat.id in last_welcome_messages:
             try:
                 await context.bot.delete_message(chat_id=chat.id, message_id=last_welcome_messages[chat.id])
             except Exception:
                 pass
 
-        # Prepare message & buttons
         w_text = format_template(cfg.get("welcome_text", ""), member, chat, cfg)
         w_kb = parse_custom_buttons(cfg.get("welcome_buttons_raw"), chat.id)
         m_id = cfg.get("welcome_media_id")
@@ -1624,6 +1603,7 @@ async def security_moderator(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if not update.message or not update.message.from_user:
         return
 
+    # Check interactive text input first
     if await interactive_state_processor(update, context):
         return
 
@@ -1782,12 +1762,12 @@ def main():
     # Single Router
     app.add_handler(CallbackQueryHandler(unified_callback_handler))
 
-    # Event Handlers
+    # Handlers
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, new_member_welcome_handler))
     app.add_handler(MessageHandler(filters.Regex(r"(?i)^pip3?\s+install\s+"), auto_pip_installer))
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, security_moderator))
 
-    print("🛡 Group Help Security Bot running smoothly with full Welcome customization & real-time previews...")
+    print("🛡 Group Help Security Bot running smoothly...")
     app.run_polling()
 
 if __name__ == "__main__":
