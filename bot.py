@@ -36,42 +36,55 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# In-Memory Settings & Security Storage
+# Data Storage
 group_settings = {}
 user_warns = {}
 staff_roles = {}
+whitelist_storage = {}
 
-DEFAULT_CONFIG = {
-    "antilink": True,
-    "antispam": True,
-    "captcha": True,
-    "warn_limit": 3,
-    "night_mode": False,
-    "lock_media": False
-}
+# Default Security State
+def get_default_config():
+    return {
+        "captcha": True,
+        "warn_limit": 3,
+        "night_mode": False,
+        "lock_media": False,
+        # Deep Anti-Spam
+        "spam_penalty": "Off",  # Off, Warn, Kick, Mute, Ban
+        "spam_delete": True,
+        "spam_usernames": False,
+        "spam_bots": False,
+        # Quote Antispam Config
+        "quote_target": "groups",  # channels, groups, users, bots
+        "quote_channels_penalty": "Off",
+        "quote_groups_penalty": "Off",
+        "quote_users_penalty": "Off",
+        "quote_bots_penalty": "Off",
+        "quote_delete": True,
+    }
 
 def get_config(chat_id: int):
     if chat_id not in group_settings:
-        group_settings[chat_id] = DEFAULT_CONFIG.copy()
+        group_settings[chat_id] = get_default_config()
     return group_settings[chat_id]
 
-# ----------------- SAFE CALLBACK ANSWER ----------------- #
+def get_whitelist(chat_id: int):
+    if chat_id not in whitelist_storage:
+        whitelist_storage[chat_id] = set()
+    return whitelist_storage[chat_id]
+
+# ----------------- SAFE CALLBACK & ADMIN CHECK ----------------- #
 async def safe_answer(query, text=None, show_alert=False):
-    """Prevents crash when query is too old or already answered."""
     try:
         if text:
             await query.answer(text=text, show_alert=show_alert)
         else:
             await query.answer()
-    except BadRequest as e:
-        if "Query is too old" in str(e) or "query id is invalid" in str(e):
-            logger.warning("Ignored expired callback query.")
-        else:
-            logger.error(f"Callback answer error: {e}")
+    except BadRequest:
+        pass
     except Exception as e:
-        logger.error(f"Unexpected callback error: {e}")
+        logger.error(f"Callback answer error: {e}")
 
-# ----------------- PERMISSION CHECKERS ----------------- #
 async def is_user_admin(chat_id: int, user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
     if user_id in OWNER_IDS:
         return True
@@ -84,71 +97,7 @@ async def is_user_admin(chat_id: int, user_id: int, context: ContextTypes.DEFAUL
     except Exception:
         return False
 
-# ----------------- AUTO PIP INSTALL & RESTART ----------------- #
-async def auto_pip_installer(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message or not update.message.from_user:
-        return
-
-    user_id = update.message.from_user.id
-    text = update.message.text or ""
-
-    if user_id not in OWNER_IDS:
-        return
-
-    if re.match(r"^pip3?\s+install\s+", text.strip(), re.IGNORECASE):
-        packages = text.strip().split()[2:]
-        if not packages:
-            await update.message.reply_text("❌ Kripya package ka naam bhi dein (e.g. `pip install aiohttp`)")
-            return
-
-        status_msg = await update.message.reply_text(
-            f"📦 **VPS Installation Started...**\nInstalling: `{' '.join(packages)}`",
-            parse_mode="Markdown"
-        )
-
-        try:
-            cmd = [sys.executable, "-m", "pip", "install"] + packages
-            process = subprocess.run(cmd, capture_output=True, text=True, check=True)
-
-            log_output = process.stdout[-800:] if len(process.stdout) > 800 else process.stdout
-            await status_msg.edit_text(
-                f"✅ **Installation Successful!**\n```\n{log_output.strip()}\n```\n\n⚙️ **Restarting bot via `python3 bot.py`...**",
-                parse_mode="Markdown"
-            )
-
-            os.execv(sys.executable, ["python3", "bot.py"])
-
-        except subprocess.CalledProcessError as e:
-            err = e.stderr or e.stdout
-            await status_msg.edit_text(f"❌ **Installation Failed:**\n```\n{err[-800:]}\n```", parse_mode="Markdown")
-        except Exception as e:
-            await status_msg.edit_text(f"❌ **Error:** `{str(e)}`", parse_mode="Markdown")
-
-# ----------------- AUTO UPDATE SYSTEM ----------------- #
-async def update_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if user_id not in OWNER_IDS:
-        await update.message.reply_text("⛔ Sirf authorized bot owners hi is command ko use kar sakte hain.")
-        return
-
-    status_msg = await update.message.reply_text("🔄 **Update Process Started...**\nRunning `git stash` & `git pull`...", parse_mode="Markdown")
-
-    try:
-        subprocess.run(["git", "stash"], capture_output=True, text=True, check=True)
-        pull_res = subprocess.run(["git", "pull"], capture_output=True, text=True, check=True)
-        
-        output_log = f"**Git Output:**\n```\n{pull_res.stdout.strip()}\n```"
-        await status_msg.edit_text(f"{output_log}\n\n⚙️ **Restarting bot via `python3 bot.py`...**", parse_mode="Markdown")
-
-        os.execv(sys.executable, ["python3", "bot.py"])
-
-    except subprocess.CalledProcessError as e:
-        err_msg = e.stderr or e.stdout
-        await status_msg.edit_text(f"❌ **Git Error Failed:**\n```\n{err_msg}\n```", parse_mode="Markdown")
-    except Exception as e:
-        await status_msg.edit_text(f"❌ **Error during update/restart:**\n`{str(e)}`", parse_mode="Markdown")
-
-# ----------------- INLINE SETTINGS MENUS ----------------- #
+# ----------------- INLINE KEYBOARDS ----------------- #
 def get_main_settings_keyboard(chat_id: int):
     cfg = get_config(chat_id)
     btn = lambda key, text: f"{text} {'✅' if cfg.get(key) else '❌'}"
@@ -156,7 +105,7 @@ def get_main_settings_keyboard(chat_id: int):
     keyboard = [
         [
             InlineKeyboardButton("📜 Regulation", callback_data=f"cfg_view_reg_{chat_id}"),
-            InlineKeyboardButton(btn("antispam", "✉️ Anti-Spam"), callback_data=f"cfg_toggle_antispam_{chat_id}")
+            InlineKeyboardButton("✉️ Anti-Spam ⚙️", callback_data=f"aspam_main_{chat_id}")
         ],
         [
             InlineKeyboardButton("💬 Welcome", callback_data=f"cfg_view_welcome_{chat_id}"),
@@ -168,18 +117,14 @@ def get_main_settings_keyboard(chat_id: int):
         ],
         [
             InlineKeyboardButton(btn("lock_media", "📸 Media"), callback_data=f"cfg_toggle_media_{chat_id}"),
-            InlineKeyboardButton(btn("antilink", "🔗 Link Block"), callback_data=f"cfg_toggle_link_{chat_id}")
+            InlineKeyboardButton("🔗 Telegram links", callback_data=f"aspam_tglinks_{chat_id}")
         ],
         [
             InlineKeyboardButton(btn("night_mode", "🌘 Night Mode"), callback_data=f"cfg_toggle_night_{chat_id}"),
             InlineKeyboardButton(f"⚠️ Warn Limit ({cfg.get('warn_limit')})", callback_data=f"cfg_warn_limit_{chat_id}")
         ],
-        [
-            InlineKeyboardButton("Next Page ➡️", callback_data=f"cfg_page_2_{chat_id}")
-        ],
-        [
-            InlineKeyboardButton("❎ Close", callback_data="cfg_close")
-        ]
+        [InlineKeyboardButton("Next Page ➡️", callback_data=f"cfg_page_2_{chat_id}")],
+        [InlineKeyboardButton("❎ Close", callback_data="cfg_close")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -188,7 +133,7 @@ def get_page2_settings_keyboard(chat_id: int):
         [InlineKeyboardButton("📁 Topic", callback_data=f"cfg_view_topic_{chat_id}")],
         [InlineKeyboardButton("🔤 Banned Words", callback_data=f"cfg_view_banned_{chat_id}")],
         [InlineKeyboardButton("👥 Members Management", callback_data=f"cfg_view_members_{chat_id}")],
-        [InlineKeyboardButton("🎭 Magic Stickers & GIFs", callback_data=f"cfg_view_media_{chat_id}")],
+        [InlineKeyboardButton("💭 Quote Antispam", callback_data=f"aspam_quote_{chat_id}")],
         [InlineKeyboardButton("🔍 Log Channel", callback_data=f"cfg_view_logs_{chat_id}")],
         [
             InlineKeyboardButton("⬅️ Back", callback_data=f"cfg_page_1_{chat_id}"),
@@ -197,31 +142,414 @@ def get_page2_settings_keyboard(chat_id: int):
     ]
     return InlineKeyboardMarkup(keyboard)
 
-# ----------------- BASIC COMMANDS ----------------- #
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    chat = update.effective_chat
+# 1. Total Links & Telegram Links UI
+def get_antispam_tglinks_keyboard(chat_id: int):
+    cfg = get_config(chat_id)
+    p = cfg["spam_penalty"]
+    
+    p_btn = lambda name: f"✅ {name}" if p == name else name
+    del_status = "Yes ✔️" if cfg["spam_delete"] else "No ✖️"
+    user_status = "✔️" if cfg["spam_usernames"] else "✖️"
+    bot_status = "✔️" if cfg["spam_bots"] else "✖️"
 
-    if chat.type == "private":
-        keyboard = [
-            [InlineKeyboardButton("➕ Add Me to Your Group", url=f"https://t.me/{context.bot.username}?startgroup=true")]
+    keyboard = [
+        [
+            InlineKeyboardButton(p_btn("❌ Off"), callback_data=f"aspen_Off_{chat_id}"),
+            InlineKeyboardButton(p_btn("! Warn"), callback_data=f"aspen_Warn_{chat_id}"),
+            InlineKeyboardButton(p_btn("! Kick"), callback_data=f"aspen_Kick_{chat_id}")
+        ],
+        [
+            InlineKeyboardButton(p_btn("🔇 Mute"), callback_data=f"aspen_Mute_{chat_id}"),
+            InlineKeyboardButton(p_btn("🚷 Ban"), callback_data=f"aspen_Ban_{chat_id}")
+        ],
+        [InlineKeyboardButton(f"🗑 Delete Messages {del_status}", callback_data=f"astog_del_{chat_id}")],
+        [InlineKeyboardButton(f"🎯 Username Antispam {user_status}", callback_data=f"astog_user_{chat_id}")],
+        [InlineKeyboardButton(f"🤖 Bots Antispam {bot_status}", callback_data=f"astog_bot_{chat_id}")],
+        [
+            InlineKeyboardButton("⬅️ Back", callback_data=f"cfg_page_1_{chat_id}"),
+            InlineKeyboardButton("☀️ Exceptions", callback_data=f"asexc_main_{chat_id}")
         ]
-        await update.message.reply_text(
-            f"Hello {user.first_name}!\n\n"
-            "Main **Group Security & Moderation Bot** hoon.\n"
-            "Mujhe group me add karein aur admin banayein, fir `/settings` command run karein.",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="Markdown"
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+# 2. Quote Antispam UI
+def get_antispam_quote_keyboard(chat_id: int):
+    cfg = get_config(chat_id)
+    target = cfg.get("quote_target", "groups")
+    p = cfg.get(f"quote_{target}_penalty", "Off")
+    del_status = "✔️" if cfg["quote_delete"] else "✖️"
+
+    t_btn = lambda name, key: f"» {name} «" if target == key else name
+    p_btn = lambda name: f"✅ {name}" if p == name else name
+
+    keyboard = [
+        [
+            InlineKeyboardButton(t_btn("📣 Channels", "channels"), callback_data=f"asqtar_channels_{chat_id}"),
+            InlineKeyboardButton(t_btn("👥 Groups", "groups"), callback_data=f"asqtar_groups_{chat_id}")
+        ],
+        [
+            InlineKeyboardButton(t_btn("👤 Users", "users"), callback_data=f"asqtar_users_{chat_id}"),
+            InlineKeyboardButton(t_btn("🤖 Bots", "bots"), callback_data=f"asqtar_bots_{chat_id}")
+        ],
+        [InlineKeyboardButton("➖➖➖➖➖➖➖➖", callback_data="none")],
+        [
+            InlineKeyboardButton(p_btn("❌ Off"), callback_data=f"asqpen_Off_{chat_id}"),
+            InlineKeyboardButton(p_btn("! Warn"), callback_data=f"asqpen_Warn_{chat_id}"),
+            InlineKeyboardButton(p_btn("! Kick"), callback_data=f"asqpen_Kick_{chat_id}")
+        ],
+        [
+            InlineKeyboardButton(p_btn("🔇 Mute"), callback_data=f"asqpen_Mute_{chat_id}"),
+            InlineKeyboardButton(p_btn("🚷 Ban"), callback_data=f"asqpen_Ban_{chat_id}")
+        ],
+        [InlineKeyboardButton(f"🗑 Delete Messages {del_status}", callback_data=f"asqtog_del_{chat_id}")],
+        [
+            InlineKeyboardButton("⬅️ Back", callback_data=f"cfg_page_1_{chat_id}"),
+            InlineKeyboardButton("☀️ Exceptions", callback_data=f"asexc_main_{chat_id}")
+        ]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+# 3. Exceptions & Whitelist UI
+def get_exceptions_keyboard(chat_id: int):
+    keyboard = [
+        [InlineKeyboardButton("🔤 Show Whitelist", callback_data=f"asexc_show_{chat_id}")],
+        [
+            InlineKeyboardButton("➕ Add", callback_data=f"asexc_add_{chat_id}"),
+            InlineKeyboardButton("➖ Remove", callback_data=f"asexc_rem_{chat_id}")
+        ],
+        [InlineKeyboardButton("🌐 Global Whitelist", callback_data=f"asexc_global_{chat_id}")],
+        [InlineKeyboardButton("⬅️ Back", callback_data=f"aspam_tglinks_{chat_id}")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+# ----------------- PUNISHMENT DISPATCHER ----------------- #
+async def execute_punishment(penalty: str, should_delete: bool, update: Update, context: ContextTypes.DEFAULT_TYPE, reason: str):
+    chat = update.effective_chat
+    user = update.effective_user
+    msg = update.message
+
+    if should_delete:
+        try:
+            await msg.delete()
+        except Exception:
+            pass
+
+    if penalty == "Off" or not penalty:
+        return
+
+    try:
+        if penalty == "Warn":
+            chat_warns = user_warns.setdefault(chat.id, {})
+            current_warns = chat_warns.get(user.id, 0) + 1
+            chat_warns[user.id] = current_warns
+            limit = get_config(chat.id).get("warn_limit", 3)
+            
+            if current_warns >= limit:
+                chat_warns[user.id] = 0
+                await context.bot.ban_chat_member(chat.id, user.id)
+                await chat.send_message(f"🚫 {user.mention_html()} banned for reaching maximum warns ({limit}/{limit}) due to {reason}.", parse_mode="HTML")
+            else:
+                await chat.send_message(f"⚠️ {user.mention_html()} warned ({current_warns}/{limit}) for {reason}!", parse_mode="HTML")
+
+        elif penalty == "Mute":
+            await context.bot.restrict_chat_member(chat.id, user.id, permissions=ChatPermissions(can_send_messages=False))
+            await chat.send_message(f"🔇 {user.mention_html()} muted for {reason}.", parse_mode="HTML")
+
+        elif penalty == "Kick":
+            await context.bot.unban_chat_member(chat.id, user.id)
+            await chat.send_message(f"👞 {user.mention_html()} kicked for {reason}.", parse_mode="HTML")
+
+        elif penalty == "Ban":
+            await context.bot.ban_chat_member(chat.id, user.id)
+            await chat.send_message(f"🚫 {user.mention_html()} banned for {reason}.", parse_mode="HTML")
+    except Exception as e:
+        logger.error(f"Punishment error: {e}")
+
+# ----------------- ANTI-SPAM CALLBACK HANDLER ----------------- #
+async def antispam_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    data = query.data
+    user = query.from_user
+    chat = query.message.chat
+
+    if not await is_user_admin(chat.id, user.id, context):
+        await safe_answer(query, "Sirf Admins settings badal sakte hain!", show_alert=True)
+        return
+
+    cfg = get_config(chat.id)
+
+    # 1. Open Menus
+    if data.startswith("aspam_tglinks_"):
+        cid = int(data.split("_")[2])
+        text = (
+            "📘 <b>Telegram links</b>\n"
+            "From this menu you can set a punishment for users who send messages that contain Telegram links.\n\n"
+            "🎯 <b>Username Antispam:</b> triggers when a username is sent.\n"
+            "🤖 <b>Bots Antispam:</b> triggers when a bot link is sent.\n\n"
+            f"<b>Penalty:</b> {cfg['spam_penalty']}\n"
+            f"<b>Deletion:</b> {'Yes ✔️' if cfg['spam_delete'] else 'No ✖️'}"
         )
+        await query.edit_message_text(text, reply_markup=get_antispam_tglinks_keyboard(cid), parse_mode="HTML")
+        await safe_answer(query)
+        return
+
+    if data.startswith("aspam_quote_") or data.startswith("asqtar_"):
+        cid = int(data.split("_")[2])
+        if data.startswith("asqtar_"):
+            cfg["quote_target"] = data.split("_")[1]
+            
+        text = (
+            "💭 <b>Quote</b>\n"
+            "Select punishment for users who send messages containing quotes/forwards from external chats.\n\n"
+            f"📣 <b>Channels:</b> {cfg['quote_channels_penalty']}\n"
+            f"👥 <b>Groups:</b> {cfg['quote_groups_penalty']}\n"
+            f"👤 <b>Users:</b> {cfg['quote_users_penalty']}\n"
+            f"🤖 <b>Bots:</b> {cfg['quote_bots_penalty']}\n"
+        )
+        await query.edit_message_text(text, reply_markup=get_antispam_quote_keyboard(cid), parse_mode="HTML")
+        await safe_answer(query)
+        return
+
+    # 2. Exceptions Menu
+    if data.startswith("asexc_"):
+        cid = int(data.split("_")[2])
+        sub = data.split("_")[1]
+        
+        if sub == "main":
+            text = (
+                "☀️ <b>Antispam Exception</b>\n"
+                "Manage the Telegram's links/usernames of groups and channels that will not be treated as spam.\n\n"
+                "<i>The group links are automatically in the antispam exception.</i>"
+            )
+            await query.edit_message_text(text, reply_markup=get_exceptions_keyboard(cid), parse_mode="HTML")
+        elif sub == "show":
+            wl = get_whitelist(cid)
+            wl_text = "\n".join([f"• <code>{x}</code>" for x in wl]) if wl else "No whitelisted links/usernames."
+            await safe_answer(query, f"Whitelist:\n{wl_text}", show_alert=True)
+            return
+        elif sub == "add":
+            await safe_answer(query, "Whitelist me add karne ke liye chat me `/whitelist @username_ya_link` likhein.", show_alert=True)
+            return
+        elif sub == "rem":
+            await safe_answer(query, "Remove karne ke liye `/unwhitelist @username_ya_link` likhein.", show_alert=True)
+            return
+        elif sub == "global":
+            await safe_answer(query, "Global Whitelist active hai.", show_alert=True)
+            return
+            
+        await safe_answer(query)
+        return
+
+    # 3. Penalties & Toggles for Links
+    if data.startswith("aspen_"):
+        pen = data.split("_")[1]
+        cid = int(data.split("_")[2])
+        cfg["spam_penalty"] = pen
+        text = (
+            "📘 <b>Telegram links</b>\n"
+            "From this menu you can set a punishment for users who send messages that contain Telegram links.\n\n"
+            f"<b>Penalty:</b> {cfg['spam_penalty']}\n"
+            f"<b>Deletion:</b> {'Yes ✔️' if cfg['spam_delete'] else 'No ✖️'}"
+        )
+        await query.edit_message_text(text, reply_markup=get_antispam_tglinks_keyboard(cid), parse_mode="HTML")
+        await safe_answer(query, f"Penalty set to {pen}")
+        return
+
+    if data.startswith("astog_"):
+        tog = data.split("_")[1]
+        cid = int(data.split("_")[2])
+        if tog == "del":
+            cfg["spam_delete"] = not cfg["spam_delete"]
+        elif tog == "user":
+            cfg["spam_usernames"] = not cfg["spam_usernames"]
+        elif tog == "bot":
+            cfg["spam_bots"] = not cfg["spam_bots"]
+
+        text = (
+            "📘 <b>Telegram links</b>\n"
+            "From this menu you can set a punishment for users who send messages that contain Telegram links.\n\n"
+            f"<b>Penalty:</b> {cfg['spam_penalty']}\n"
+            f"<b>Deletion:</b> {'Yes ✔️' if cfg['spam_delete'] else 'No ✖️'}"
+        )
+        await query.edit_message_text(text, reply_markup=get_antispam_tglinks_keyboard(cid), parse_mode="HTML")
+        await safe_answer(query, "Updated!")
+        return
+
+    # 4. Quote Penalties & Toggles
+    if data.startswith("asqpen_"):
+        pen = data.split("_")[1]
+        cid = int(data.split("_")[2])
+        target = cfg.get("quote_target", "groups")
+        cfg[f"quote_{target}_penalty"] = pen
+
+        text = (
+            "💭 <b>Quote</b>\n"
+            "Select punishment for users who send messages containing quotes from external chats.\n\n"
+            f"📣 <b>Channels:</b> {cfg['quote_channels_penalty']}\n"
+            f"👥 <b>Groups:</b> {cfg['quote_groups_penalty']}\n"
+            f"👤 <b>Users:</b> {cfg['quote_users_penalty']}\n"
+            f"🤖 <b>Bots:</b> {cfg['quote_bots_penalty']}\n"
+        )
+        await query.edit_message_text(text, reply_markup=get_antispam_quote_keyboard(cid), parse_mode="HTML")
+        await safe_answer(query, f"{target.capitalize()} penalty set to {pen}")
+        return
+
+    if data.startswith("asqtog_del_"):
+        cid = int(data.split("_")[2])
+        cfg["quote_delete"] = not cfg["quote_delete"]
+        text = (
+            "💭 <b>Quote</b>\n"
+            "Select punishment for users who send messages containing quotes from external chats.\n\n"
+            f"📣 <b>Channels:</b> {cfg['quote_channels_penalty']}\n"
+            f"👥 <b>Groups:</b> {cfg['quote_groups_penalty']}\n"
+            f"👤 <b>Users:</b> {cfg['quote_users_penalty']}\n"
+            f"🤖 <b>Bots:</b> {cfg['quote_bots_penalty']}\n"
+        )
+        await query.edit_message_text(text, reply_markup=get_antispam_quote_keyboard(cid), parse_mode="HTML")
+        await safe_answer(query, "Quote deletion toggled!")
+        return
+
+# ----------------- WHITELIST MANAGEMENT ----------------- #
+async def add_whitelist_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat = update.effective_chat
+    user = update.effective_user
+
+    if not await is_user_admin(chat.id, user.id, context):
+        return
+
+    if not context.args:
+        await update.message.reply_text("Usage: `/whitelist @username` ya `/whitelist t.me/joinchat`", parse_mode="Markdown")
+        return
+
+    target = context.args[0].lower().replace("@", "")
+    wl = get_whitelist(chat.id)
+    wl.add(target)
+    await update.message.reply_text(f"✅ `@{target}` ko Antispam Whitelist me add kar diya gaya.", parse_mode="Markdown")
+
+async def remove_whitelist_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat = update.effective_chat
+    user = update.effective_user
+
+    if not await is_user_admin(chat.id, user.id, context):
+        return
+
+    if not context.args:
+        await update.message.reply_text("Usage: `/unwhitelist @username`", parse_mode="Markdown")
+        return
+
+    target = context.args[0].lower().replace("@", "")
+    wl = get_whitelist(chat.id)
+    if target in wl:
+        wl.remove(target)
+        await update.message.reply_text(f"❌ `@{target}` ko Whitelist se hata diya gaya.", parse_mode="Markdown")
     else:
-        await update.message.reply_text("Group Security Bot active hai. Type `/settings` for inline panel.")
+        await update.message.reply_text("Yeh entry whitelist me nahi hai.")
+
+# ----------------- SECURITY & AUTO MODERATION FILTER ----------------- #
+async def deep_antispam_moderator(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message or not update.message.from_user:
+        return
+
+    chat = update.effective_chat
+    user = update.effective_user
+    msg = update.message
+    text = msg.text or msg.caption or ""
+    cfg = get_config(chat.id)
+    wl = get_whitelist(chat.id)
+
+    # Admins & Owners Bypass
+    if await is_user_admin(chat.id, user.id, context):
+        return
+
+    # --- 1. QUOTE & FORWARD ANTISPAM ---
+    if msg.forward_origin:
+        origin_type = msg.forward_origin.type
+        penalty = "Off"
+        
+        if origin_type == "channel":
+            penalty = cfg.get("quote_channels_penalty", "Off")
+        elif origin_type == "chat":
+            penalty = cfg.get("quote_groups_penalty", "Off")
+        elif origin_type == "user":
+            sender_user = getattr(msg.forward_origin, 'sender_user', None)
+            if sender_user and sender_user.is_bot:
+                penalty = cfg.get("quote_bots_penalty", "Off")
+            else:
+                penalty = cfg.get("quote_users_penalty", "Off")
+
+        if penalty != "Off" or cfg.get("quote_delete"):
+            await execute_punishment(penalty, cfg.get("quote_delete", True), update, context, f"Forward/Quote from {origin_type}")
+            return
+
+    # --- 2. TELEGRAM LINK ANTISPAM ---
+    link_pattern = r"(https?://t\.me/\S+|t\.me/\S+|telegram\.me/\S+)"
+    found_links = re.findall(link_pattern, text, re.IGNORECASE)
+
+    if found_links and cfg["spam_penalty"] != "Off":
+        for link in found_links:
+            clean_link = link.lower()
+            # Whitelist verification
+            if not any(exc in clean_link for exc in wl):
+                await execute_punishment(cfg["spam_penalty"], cfg["spam_delete"], update, context, "Telegram link")
+                return
+
+    # --- 3. BOTS ANTISPAM ---
+    if cfg.get("spam_bots"):
+        if re.search(r"t\.me/\w+bot\b", text, re.IGNORECASE) or re.search(r"@\w+bot\b", text, re.IGNORECASE):
+            await execute_punishment(cfg["spam_penalty"], cfg["spam_delete"], update, context, "Bot link/mention")
+            return
+
+    # --- 4. USERNAME ANTISPAM ---
+    if cfg.get("spam_usernames"):
+        usernames = re.findall(r"@(\w+)", text)
+        for un in usernames:
+            if un.lower() not in wl:
+                await execute_punishment(cfg["spam_penalty"], cfg["spam_delete"], update, context, f"Username spam (@{un})")
+                return
+
+# ----------------- SYSTEM & SETTINGS COMMANDS ----------------- #
+async def auto_pip_installer(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message or not update.message.from_user:
+        return
+    user_id = update.message.from_user.id
+    text = update.message.text or ""
+
+    if user_id not in OWNER_IDS:
+        return
+
+    if re.match(r"^pip3?\s+install\s+", text.strip(), re.IGNORECASE):
+        packages = text.strip().split()[2:]
+        if not packages:
+            await update.message.reply_text("❌ Package name missing.")
+            return
+
+        status_msg = await update.message.reply_text(f"📦 Installing: `{' '.join(packages)}`", parse_mode="Markdown")
+        try:
+            cmd = [sys.executable, "-m", "pip", "install"] + packages
+            process = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            await status_msg.edit_text(f"✅ Installed!\n\n⚙️ Restarting bot...", parse_mode="Markdown")
+            os.execv(sys.executable, ["python3", "bot.py"])
+        except Exception as e:
+            await status_msg.edit_text(f"❌ Error: `{str(e)}`", parse_mode="Markdown")
+
+async def update_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id not in OWNER_IDS:
+        return
+    status_msg = await update.message.reply_text("🔄 Updating bot...", parse_mode="Markdown")
+    try:
+        subprocess.run(["git", "stash"], capture_output=True, text=True, check=True)
+        subprocess.run(["git", "pull"], capture_output=True, text=True, check=True)
+        await status_msg.edit_text("⚙️ Git pull complete. Restarting...", parse_mode="Markdown")
+        os.execv(sys.executable, ["python3", "bot.py"])
+    except Exception as e:
+        await status_msg.edit_text(f"❌ Error: `{str(e)}`", parse_mode="Markdown")
 
 async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
 
     if chat.type == "private":
-        await update.message.reply_text("Yeh command sirf groups ke andar chalegi.")
+        await update.message.reply_text("Sirf groups ke liye available hai.")
         return
 
     if not await is_user_admin(chat.id, user.id, context):
@@ -234,121 +562,16 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
 
-# ----------------- MODERATION COMMANDS ----------------- #
-async def ban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat = update.effective_chat
-    user = update.effective_user
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_chat.type == "private":
+        keyboard = [[InlineKeyboardButton("➕ Add Me to Your Group", url=f"https://t.me/{context.bot.username}?startgroup=true")]]
+        await update.message.reply_text("🛡 Group Security Bot active! Add to group and send `/settings`.", reply_markup=InlineKeyboardMarkup(keyboard))
 
-    if not await is_user_admin(chat.id, user.id, context):
-        return
-
-    target_user = update.message.reply_to_message.from_user if update.message.reply_to_message else None
-    if not target_user:
-        await update.message.reply_text("Command reply me use karein: Reply to a user with `/ban`")
-        return
-
-    try:
-        await context.bot.ban_chat_member(chat.id, target_user.id)
-        await update.message.reply_text(f"🚫 User {target_user.mention_html()} ko ban kar diya gaya.", parse_mode="HTML")
-    except Exception as e:
-        await update.message.reply_text(f"Error: {e}")
-
-async def mute_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat = update.effective_chat
-    user = update.effective_user
-
-    if not await is_user_admin(chat.id, user.id, context):
-        return
-
-    target_user = update.message.reply_to_message.from_user if update.message.reply_to_message else None
-    if not target_user:
-        await update.message.reply_text("Command reply me use karein: Reply to a user with `/mute`")
-        return
-
-    try:
-        await context.bot.restrict_chat_member(
-            chat.id,
-            target_user.id,
-            permissions=ChatPermissions(can_send_messages=False)
-        )
-        await update.message.reply_text(f"🔇 User {target_user.mention_html()} ko mute kar diya gaya.", parse_mode="HTML")
-    except Exception as e:
-        await update.message.reply_text(f"Error: {e}")
-
-async def unmute_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat = update.effective_chat
-    user = update.effective_user
-
-    if not await is_user_admin(chat.id, user.id, context):
-        return
-
-    target_user = update.message.reply_to_message.from_user if update.message.reply_to_message else None
-    if not target_user:
-        await update.message.reply_text("Command reply me use karein: Reply to a user with `/unmute`")
-        return
-
-    try:
-        await context.bot.restrict_chat_member(
-            chat.id,
-            target_user.id,
-            permissions=ChatPermissions(
-                can_send_messages=True,
-                can_send_media_messages=True,
-                can_send_other_messages=True,
-                can_add_web_page_previews=True
-            )
-        )
-        await update.message.reply_text(f"🔊 User {target_user.mention_html()} ko unmute kar diya gaya.", parse_mode="HTML")
-    except Exception as e:
-        await update.message.reply_text(f"Error: {e}")
-
-async def warn_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat = update.effective_chat
-    user = update.effective_user
-
-    if not await is_user_admin(chat.id, user.id, context):
-        return
-
-    target_user = update.message.reply_to_message.from_user if update.message.reply_to_message else None
-    if not target_user:
-        await update.message.reply_text("Command reply me use karein: Reply to a user with `/warn`")
-        return
-
-    chat_warns = user_warns.setdefault(chat.id, {})
-    current_warns = chat_warns.get(target_user.id, 0) + 1
-    chat_warns[target_user.id] = current_warns
-
-    limit = get_config(chat.id).get("warn_limit", 3)
-    if current_warns >= limit:
-        chat_warns[target_user.id] = 0
-        try:
-            await context.bot.ban_chat_member(chat.id, target_user.id)
-            await update.message.reply_text(f"🚫 {target_user.mention_html()} reached maximum warns ({limit}/{limit}) and was banned.", parse_mode="HTML")
-        except Exception as e:
-            await update.message.reply_text(f"Error banning user: {e}")
-    else:
-        await update.message.reply_text(f"⚠️ {target_user.mention_html()} has been warned! ({current_warns}/{limit})", parse_mode="HTML")
-
-async def delete_message_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat = update.effective_chat
-    user = update.effective_user
-
-    if not await is_user_admin(chat.id, user.id, context):
-        return
-
-    if update.message.reply_to_message:
-        try:
-            await update.message.reply_to_message.delete()
-            await update.message.delete()
-        except Exception:
-            pass
-
-# ----------------- INLINE CALLBACK HANDLER ----------------- #
 async def settings_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     data = query.data
-    user = query.from_user
     chat = query.message.chat
+    user = query.from_user
 
     if data == "cfg_close":
         try:
@@ -359,188 +582,42 @@ async def settings_callback_handler(update: Update, context: ContextTypes.DEFAUL
         return
 
     if not await is_user_admin(chat.id, user.id, context):
-        await safe_answer(query, "Sirf admins settings change kar sakte hain.", show_alert=True)
+        await safe_answer(query, "Sirf admins change kar sakte hain.", show_alert=True)
         return
 
-    parts = data.split("_")
-    action = parts[1]
-    
-    if action == "page":
-        page_no = parts[2]
-        chat_id = int(parts[3])
-        try:
-            if page_no == "2":
-                await query.edit_message_reply_markup(reply_markup=get_page2_settings_keyboard(chat_id))
-            else:
-                await query.edit_message_reply_markup(reply_markup=get_main_settings_keyboard(chat_id))
-        except Exception:
-            pass
+    if data.startswith("cfg_page_"):
+        page = data.split("_")[2]
+        cid = int(data.split("_")[3])
+        kb = get_page2_settings_keyboard(cid) if page == "2" else get_main_settings_keyboard(cid)
+        await query.edit_message_reply_markup(reply_markup=kb)
         await safe_answer(query)
         return
 
-    if action == "toggle":
-        setting_key = parts[2]
-        chat_id = int(parts[3])
-        cfg = get_config(chat_id)
-
-        if setting_key == "link":
-            cfg["antilink"] = not cfg["antilink"]
-        elif setting_key == "antispam":
-            cfg["antispam"] = not cfg["antispam"]
-        elif setting_key == "captcha":
-            cfg["captcha"] = not cfg["captcha"]
-        elif setting_key == "media":
-            cfg["lock_media"] = not cfg["lock_media"]
-        elif setting_key == "night":
-            cfg["night_mode"] = not cfg["night_mode"]
-
-        try:
-            await query.edit_message_reply_markup(reply_markup=get_main_settings_keyboard(chat_id))
-        except Exception:
-            pass
-        await safe_answer(query, "Setting updated!")
+    if data.startswith("aspam_main_"):
+        cid = int(data.split("_")[2])
+        await antispam_callback_handler(update, context)
         return
 
-    if action == "warn":
-        chat_id = int(parts[3])
-        cfg = get_config(chat_id)
-        cfg["warn_limit"] = 5 if cfg["warn_limit"] == 3 else 3
-        try:
-            await query.edit_message_reply_markup(reply_markup=get_main_settings_keyboard(chat_id))
-        except Exception:
-            pass
-        await safe_answer(query, f"Warn limit set to {cfg['warn_limit']}")
-        return
-
-    await safe_answer(query, "Module opened.")
-
-# ----------------- SECURITY & AUTO MODERATION ----------------- #
-async def auto_moderation_guard(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message or not update.message.from_user:
-        return
-
-    chat = update.effective_chat
-    user = update.effective_user
-    text = update.message.text or update.message.caption or ""
-    cfg = get_config(chat.id)
-
-    if await is_user_admin(chat.id, user.id, context):
-        return
-
-    # Anti-Link Filter
-    if cfg.get("antilink"):
-        url_pattern = r"(https?://\S+|t\.me/\S+|telegram\.me/\S+)"
-        if re.search(url_pattern, text):
-            try:
-                await update.message.delete()
-                await chat.send_message(f"⚠️ {user.mention_html()}, links are not allowed here!", parse_mode="HTML")
-                return
-            except Exception:
-                pass
-
-    # Media Lock Filter
-    if cfg.get("lock_media"):
-        if update.message.photo or update.message.video or update.message.sticker or update.message.animation:
-            try:
-                await update.message.delete()
-                return
-            except Exception:
-                pass
-
-# ----------------- WELCOME & CAPTCHA ----------------- #
-async def welcome_captcha_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat = update.effective_chat
-    cfg = get_config(chat.id)
-
-    for member in update.message.new_chat_members:
-        if member.id == context.bot.id:
-            await chat.send_message("Thanks for adding me! Make me Admin to enable full group protection.")
-            continue
-
-        if cfg.get("captcha"):
-            try:
-                await context.bot.restrict_chat_member(
-                    chat.id,
-                    member.id,
-                    permissions=ChatPermissions(can_send_messages=False)
-                )
-            except Exception:
-                pass
-
-            keyboard = [
-                [InlineKeyboardButton("✅ I am human (Verify)", callback_data=f"captcha_verify_{member.id}")]
-            ]
-            await chat.send_message(
-                f"Welcome {member.mention_html()}!\nPlease click the button below to verify yourself.",
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode="HTML"
-            )
-
-async def captcha_verify_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    user = query.from_user
-    chat = query.message.chat
-    data = query.data
-
-    if data.startswith("captcha_verify_"):
-        target_id = int(data.split("_")[2])
-        if user.id != target_id:
-            await safe_answer(query, "Yeh button aapke liye nahi hai!", show_alert=True)
-            return
-
-        try:
-            await context.bot.restrict_chat_member(
-                chat.id,
-                user.id,
-                permissions=ChatPermissions(
-                    can_send_messages=True,
-                    can_send_media_messages=True,
-                    can_send_other_messages=True,
-                    can_add_web_page_previews=True
-                )
-            )
-            await query.message.delete()
-            await chat.send_message(f"✅ {user.mention_html()} verified successfully!", parse_mode="HTML")
-        except Exception:
-            await safe_answer(query, "Permission error, ensure bot is admin.", show_alert=True)
-
-# ----------------- GLOBAL ERROR HANDLER ----------------- #
-async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Log exceptions caused by Updates."""
-    if isinstance(context.error, BadRequest) and ("Query is too old" in str(context.error) or "query id is invalid" in str(context.error)):
-        logger.warning("Captured and handled expired callback query gracefully.")
-        return
-    logger.error(msg="Exception while handling an update:", exc_info=context.error)
-
-# ----------------- MAIN RUNNER ----------------- #
+# ----------------- MAIN APP ----------------- #
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    # Register Global Error Handler
-    app.add_error_handler(error_handler)
-
-    # Core & Owner Commands
+    # Commands
     app.add_handler(CommandHandler("start", start_command))
-    app.add_handler(CommandHandler("update", update_command))
     app.add_handler(CommandHandler("settings", settings_command))
+    app.add_handler(CommandHandler("update", update_command))
+    app.add_handler(CommandHandler("whitelist", add_whitelist_cmd))
+    app.add_handler(CommandHandler("unwhitelist", remove_whitelist_cmd))
 
-    # Moderation Commands
-    app.add_handler(CommandHandler("ban", ban_user))
-    app.add_handler(CommandHandler("mute", mute_user))
-    app.add_handler(CommandHandler("unmute", unmute_user))
-    app.add_handler(CommandHandler("warn", warn_user))
-    app.add_handler(CommandHandler("del", delete_message_cmd))
-
-    # Callbacks
+    # Dynamic Callback Handlers
+    app.add_handler(CallbackQueryHandler(antispam_callback_handler, pattern="^(aspam_|aspen_|astog_|asqtar_|asqpen_|asqtog_|asexc_)"))
     app.add_handler(CallbackQueryHandler(settings_callback_handler, pattern="^cfg_"))
-    app.add_handler(CallbackQueryHandler(captcha_verify_callback, pattern="^captcha_verify_"))
 
-    # Event Handlers
-    app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_captcha_handler))
+    # Security & Mod Message Handlers
     app.add_handler(MessageHandler(filters.Regex(r"(?i)^pip3?\s+install\s+"), auto_pip_installer))
-    app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, auto_moderation_guard))
+    app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, deep_antispam_moderator))
 
-    print("Bot is up and running...")
+    print("🛡 Group Help Security Bot is running...")
     app.run_polling()
 
 if __name__ == "__main__":
