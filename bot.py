@@ -41,7 +41,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ----------------- SQLITE DATABASE ENGINE (PERMANENT STORAGE) ----------------- #
+# ----------------- SQLITE DATABASE ENGINE ----------------- #
 DB_FILE = "group_data.db"
 
 def init_db():
@@ -80,12 +80,22 @@ def init_db():
 
 init_db()
 
-# Default Base Config (Only used on very first group setup)
+# Default Base Config
 DEFAULT_CONFIG = {
     "captcha": True,
     "warn_limit": 3,
     "night_mode": False,
     "lock_media": False,
+
+    # Antiflood
+    "flood_messages": 5,
+    "flood_seconds": 3,
+    "flood_penalty": "Off",  # Off, Warn, Kick, Mute, Ban, Deletion
+    "flood_delete": True,
+    "flood_duration_sec": 0,  # 0 = permanent/off
+    "flood_duration_str": "Off",
+
+    # Anti-Spam
     "totallinks_penalty": "Off",
     "totallinks_delete": False,
     "tglinks_penalty": "Off",
@@ -105,18 +115,24 @@ DEFAULT_CONFIG = {
     "quote_bots_penalty": "Off",
     "quote_delete": False,
     "global_whitelist_active": True,
+
+    # Regulations / Rules
     "rules_text": "📜 <b>Group Regulations</b>\n1. Be respectful\n2. No spam or self-promotion\n3. Follow admin instructions.",
     "rules_media_id": None,
     "rules_media_type": None,
     "rules_buttons_raw": None,
+
+    # Welcome System
     "welcome_active": True,
     "welcome_mode": "always",
     "welcome_delete_last": False,
-    "welcome_text": "★彡[ 𝐖𝐄𝐋𝐂𝐎𝐌𝐄 𝐓𝐎 {GROUPNAME} 𝐃𝐄𝐀𝐑 💕 ]彡★\n\n✿━━━━━━━━━━━━━━━━━✿\n  𝐇ᴇʏ {USERNAME}, 𝐖ᴇʟᴄᴏᴍᴇ ᴛᴏ ᴛʜᴇ 𝐅ᴀᴍɪʟʏ!\n  𝐖ᴇ’ʀᴇ 𝐬ᴏ ʜᴀᴘᴘʏ ᴛᴏ ʜᴀᴠᴇ ʏᴏᴜ ʜᴇʀᴇ!\n✿━━━━━━━━━━━━━━━━━✿\n\n━━━━━━━━━━━━━━━━━━━━\n    𝐘ᴏᴜʀ 𝐈ɴғᴏ\n━━━━━━━━━━━━━━━━━━━━\n•𝐅𝐮𝐥𝐥 𝐍𝐚𝐦𝐞 = {NAMESURNAME} ❤️\n•𝐔𝐬𝐞𝐫 𝐍𝐚𝐦𝐞 = {USERNAME} 🦋\n•𝐔𝐬𝐞𝐫 𝐈'𝐃 = {ID} ❤️\n•𝐏𝐫𝐨𝐟𝐢𝐥𝐞 𝐋𝐢ｎ𝐤 = {MENTION} 💐\n•𝐋𝐚ｎｇｕａｇｅ = {LANG} 🍓\n•𝐃𝐚𝐭𝐞 = {DATE} 😊\n•𝐓ｉｍｅ = {TIME} 👀\n\n━━━━━━━━━━━━━━━━━━━━\n  𝐄ɴᴊᴏʏ ʏᴏᴜʀ 𝐒ᴛᴀʏ & ᴍᴀᴋᴇ ɢʀᴇᴀᴛ ᴍᴇᴍᴏʀɪᴇ𝐬!\n  𝐓ʜᴀɴᴋ𝐬 ғᴏʀ ᴊᴏɪɴɪɴɢ!",
+    "welcome_text": "★彡[ 𝐖𝐄𝐋𝐂𝐎𝐌𝐄 𝐓𝐎 {GROUPNAME} 𝐃𝐄𝐀𝐑 💕 ]彡★\n\n✿━━━━━━━━━━━━━━━━━✿\n  𝐇ᴇʏ {USERNAME}, 𝐖ᴇʟᴄᴏᴍᴇ ᴛᴏ ᴛʜᴇ 𝐅ᴀᴍɪʟʏ!\n  𝐖ᴇ’ʀᴇ 𝐬ᴏ ʜᴀᴘᴘʏ ᴛᴏ ʜᴀᴠᴇ ʏᴏᴜ ʜᴇʀᴇ!\n✿━━━━━━━━━━━━━━━━━✿\n\n━━━━━━━━━━━━━━━━━━━━\n    𝐘ᴏᴜʀ 𝐈ɴғᴏ\n━━━━━━━━━━━━━━━━━━━━\n•𝐅𝐮𝐥𝐥 𝐍𝐚𝐦𝐞 = {NAMESURNAME} ❤️\n•𝐔𝐬𝐞𝐫 𝐍𝐚𝐦ᴇ = {USERNAME} 🦋\n•𝐔𝐬𝐞𝐫 𝐈'𝐃 = {ID} ❤️\n•𝐏𝐫𝐨𝐟𝐢𝐥𝐞 𝐋𝐢ｎ𝐤 = {MENTION} 💐\n•𝐋𝐚ｎｇｕａｇｅ = {LANG} 🍓\n•𝐃ａｔｅ = {DATE} 😊\n•𝐓ｉｍᴇ = {TIME} 👀\n\n━━━━━━━━━━━━━━━━━━━━\n  𝐄ɴᴊᴏʏ ʏᴏᴜʀ 𝐒ᴛᴀʏ & ᴍᴀᴋᴇ ɢʀᴇᴀᴛ ᴍᴇᴍᴏʀɪᴇ𝐬!\n  𝐓ʜᴀɴᴋ𝐬 ғᴏʀ ᴊᴏɪɴɪɴɢ!",
     "welcome_media_id": None,
     "welcome_media_type": None,
     "welcome_buttons_raw": None,
     "welcome_topic_id": None,
+
+    # Permissions
     "perm_staff": "everyone",
     "perm_rules": "staff",
     "perm_me": "private",
@@ -124,13 +140,14 @@ DEFAULT_CONFIG = {
     "perm_link": "everyone"
 }
 
-# Runtime In-Memory Caches
+# Runtime Caches
 group_settings_cache = {}
 admin_cache = {}
 user_states = {}
 link_drafts = {}
 active_created_links = {}
 last_welcome_messages = {}
+flood_tracker = {}  # {(chat_id, user_id): [timestamps]}
 
 GLOBAL_WHITELIST_ITEMS = {"telegram.org", "t.me/telegram", "durov", "fragment.com"}
 
@@ -220,6 +237,32 @@ def get_link_draft(chat_id: int, user_id: int):
     if key not in link_drafts:
         link_drafts[key] = {"active_tab": None, "limit": 0, "until_seconds": 0, "approval": False}
     return link_drafts[key]
+
+# ----------------- NATURAL TIME STRING PARSER ----------------- #
+def parse_time_duration(text: str) -> int:
+    text = text.lower().strip()
+    patterns = {
+        "year": 31536000, "y": 31536000,
+        "month": 2592000, "mo": 2592000,
+        "week": 604800, "w": 604800,
+        "day": 86400, "d": 86400,
+        "hour": 3600, "h": 3600,
+        "minute": 60, "min": 60, "m": 60,
+        "second": 1, "sec": 1, "s": 1
+    }
+    total_sec = 0
+    matches = re.findall(r"(\d+)\s*([a-zA-Z]+)", text)
+    if matches:
+        for val, unit in matches:
+            val = int(val)
+            for k, sec in patterns.items():
+                if unit.startswith(k):
+                    total_sec += val * sec
+                    break
+    elif text.isdigit():
+        total_sec = int(text)
+
+    return total_sec
 
 # ----------------- BUTTON CREATOR ----------------- #
 def create_btn(text: str, callback_data: str = None, url: str = None, style: str = None):
@@ -355,14 +398,13 @@ def parse_custom_buttons(raw_data: str, chat_id: int):
             keyboard.append(row)
     return InlineKeyboardMarkup(keyboard) if keyboard else None
 
-# ----------------- MESSAGE DISPATCHER ----------------- #
+# ----------------- MESSAGE SENDER ----------------- #
 async def send_custom_bundle(chat, user, cfg: dict, is_preview=False, thread_id=None):
     w_text = format_template(cfg.get("welcome_text", ""), user, chat, cfg)
     w_kb = parse_custom_buttons(cfg.get("welcome_buttons_raw"), chat.id)
     m_id = cfg.get("welcome_media_id")
     m_type = cfg.get("welcome_media_type")
 
-    # Short Caption photo/video
     if m_id and m_type in ["photo", "video"] and len(w_text) <= 1000:
         try:
             if m_type == "photo":
@@ -378,7 +420,6 @@ async def send_custom_bundle(chat, user, cfg: dict, is_preview=False, thread_id=
             except Exception:
                 pass
 
-    # Long Caption or Sticker: Send media first, then text + buttons
     if m_id:
         try:
             if m_type == "photo":
@@ -401,7 +442,79 @@ async def send_custom_bundle(chat, user, cfg: dict, is_preview=False, thread_id=
 
     return None
 
-# ----------------- KEYBOARD BUILDERS ----------------- #
+# ----------------- ANTIFLOOD KEYBOARDS & UI ----------------- #
+def get_antiflood_main_keyboard(chat_id: int):
+    cfg = get_config(chat_id)
+    p = cfg.get("flood_penalty", "Off")
+    del_icon = "✔️" if cfg.get("flood_delete", True) else "✖️"
+
+    def get_btn(label, val):
+        is_selected = (p == val)
+        btn_text = f"❌ {label}" if val == "Off" and not is_selected else label
+        btn_style = "success" if is_selected else None
+        return create_btn(btn_text, callback_data=f"flpen_{val}_{chat_id}", style=btn_style)
+
+    keyboard = [
+        [
+            create_btn("📄 Messages", callback_data=f"flgrid_msg_{chat_id}"),
+            create_btn("⏰ Time", callback_data=f"flgrid_time_{chat_id}")
+        ],
+        [
+            get_btn("Off", "Off"),
+            get_btn("! Warn", "Warn")
+        ],
+        [
+            get_btn("! Kick", "Kick"),
+            get_btn("🔊 Mute", "Mute"),
+            get_btn("🚷 Ban", "Ban")
+        ],
+        [create_btn(f"🗑 Delete Messages {del_icon}", callback_data=f"fltog_del_{chat_id}")]
+    ]
+
+    # Dynamic duration configuration button
+    if p == "Mute":
+        keyboard.append([create_btn("🔊⏰ Set mute duration", callback_data=f"flset_dur_Mute_{chat_id}")])
+    elif p == "Ban":
+        keyboard.append([create_btn("🚷⏰ Set ban duration", callback_data=f"flset_dur_Ban_{chat_id}")])
+    elif p == "Warn":
+        keyboard.append([create_btn("❗⏰ Set warn duration", callback_data=f"flset_dur_Warn_{chat_id}")])
+
+    keyboard.append([create_btn("⬅️ Back", callback_data=f"cfg_page_1_{chat_id}")])
+    return InlineKeyboardMarkup(keyboard)
+
+def get_antiflood_number_grid(chat_id: int, mode="msg"):
+    numbers = [2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 20]
+    keyboard = []
+    prefix = "flval_msg_" if mode == "msg" else "flval_time_"
+
+    row = []
+    for num in numbers:
+        row.append(create_btn(str(num), callback_data=f"{prefix}{num}_{chat_id}"))
+        if len(row) == 4:
+            keyboard.append(row)
+            row = []
+
+    keyboard.append([create_btn("⬅️ Back", callback_data=f"cfg_view_flood_{chat_id}")])
+    return InlineKeyboardMarkup(keyboard)
+
+def get_antiflood_text(chat_id: int):
+    cfg = get_config(chat_id)
+    p = cfg.get("flood_penalty", "Off")
+    if p == "Off" and cfg.get("flood_delete"):
+        punishment_display = "Deletion"
+    else:
+        punishment_display = p
+
+    text = (
+        "🗣 <b>Antiflood</b>\n"
+        "From this menu you can set a punishment for those who send many messages in a short time.\n\n"
+        f"Currently the antiflood is triggered when {cfg.get('flood_messages', 5)} messages "
+        f"are sent within {cfg.get('flood_seconds', 3)} seconds.\n\n"
+        f"<b>Punishment:</b> {punishment_display}"
+    )
+    return text
+
+# ----------------- MAIN SETTINGS KEYBOARDS ----------------- #
 def make_penalty_buttons(prefix: str, current_penalty: str, chat_id: int):
     def get_btn(label, val):
         is_selected = (current_penalty == val)
@@ -701,7 +814,7 @@ def get_link_creator_text(chat_id: int, user_id: int):
     return "\n".join(lines)
 
 # ----------------- PUNISHMENT ENGINE ----------------- #
-async def execute_punishment(penalty: str, should_delete: bool, update: Update, context: ContextTypes.DEFAULT_TYPE, reason: str):
+async def execute_punishment(penalty: str, should_delete: bool, update: Update, context: ContextTypes.DEFAULT_TYPE, reason: str, duration_sec: int = 0):
     chat = update.effective_chat
     user = update.effective_user
     msg = update.message
@@ -715,6 +828,10 @@ async def execute_punishment(penalty: str, should_delete: bool, update: Update, 
     if penalty == "Off" or not penalty:
         return
 
+    until_date = None
+    if duration_sec > 0:
+        until_date = datetime.datetime.now() + datetime.timedelta(seconds=duration_sec)
+
     try:
         if penalty == "Warn":
             current_warns = get_user_warns(chat.id, user.id) + 1
@@ -722,23 +839,30 @@ async def execute_punishment(penalty: str, should_delete: bool, update: Update, 
 
             if current_warns >= limit:
                 set_user_warns(chat.id, user.id, 0)
-                await context.bot.ban_chat_member(chat.id, user.id)
+                await context.bot.ban_chat_member(chat.id, user.id, until_date=until_date)
                 await chat.send_message(f"🚫 {user.mention_html()} banned ({limit}/{limit} warns) for {reason}.", parse_mode="HTML")
             else:
                 set_user_warns(chat.id, user.id, current_warns)
                 await chat.send_message(f"⚠️ {user.mention_html()} warned ({current_warns}/{limit}) for {reason}!", parse_mode="HTML")
 
         elif penalty == "Mute":
-            await context.bot.restrict_chat_member(chat.id, user.id, permissions=ChatPermissions(can_send_messages=False))
-            await chat.send_message(f"🔇 {user.mention_html()} muted for {reason}.", parse_mode="HTML")
+            await context.bot.restrict_chat_member(
+                chat.id,
+                user.id,
+                permissions=ChatPermissions(can_send_messages=False),
+                until_date=until_date
+            )
+            dur_txt = f" for {duration_sec}s" if duration_sec > 0 else ""
+            await chat.send_message(f"🔇 {user.mention_html()} muted{dur_txt} for {reason}.", parse_mode="HTML")
 
         elif penalty == "Kick":
             await context.bot.unban_chat_member(chat.id, user.id)
             await chat.send_message(f"👞 {user.mention_html()} kicked for {reason}.", parse_mode="HTML")
 
         elif penalty == "Ban":
-            await context.bot.ban_chat_member(chat.id, user.id)
-            await chat.send_message(f"🚫 {user.mention_html()} banned for {reason}.", parse_mode="HTML")
+            await context.bot.ban_chat_member(chat.id, user.id, until_date=until_date)
+            dur_txt = f" for {duration_sec}s" if duration_sec > 0 else ""
+            await chat.send_message(f"🚫 {user.mention_html()} banned{dur_txt} for {reason}.", parse_mode="HTML")
     except Exception as e:
         logger.error(f"Punishment execution error: {e}")
 
@@ -820,7 +944,7 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
             pass
         return
 
-    # Link Creator Handlers
+    # Link Creator
     if data.startswith("lnktab_"):
         parts = data.split("_")
         tab_name, cid, uid = parts[1], int(parts[2]), int(parts[3])
@@ -956,7 +1080,86 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
             await fast_edit(query, text, get_main_settings_keyboard(cid))
         return
 
-    # 2. WELCOME SYSTEM HUBS & ACTIONS
+    # 2. ANTIFLOOD SYSTEM HUBS & ACTIONS
+    if data.startswith("cfg_view_flood_"):
+        cid = int(data.split("_")[3])
+        user_states.pop((cid, user.id), None)
+        await fast_edit(query, get_antiflood_text(cid), get_antiflood_main_keyboard(cid))
+        return
+
+    if data.startswith("flgrid_"):
+        mode = data.split("_")[1]
+        cid = int(data.split("_")[2])
+        if mode == "msg":
+            text = (
+                "From here you can select the maximum amount of sendable messages in the time interval.\n"
+                f"Currently, the antiflood trigger when {cfg.get('flood_messages', 5)} messages "
+                f"are sent in {cfg.get('flood_seconds', 3)} seconds."
+            )
+            await fast_edit(query, text, get_antiflood_number_grid(cid, mode="msg"))
+        else:
+            text = (
+                "From here you can select the time interval considered to calculate the antiflood.\n"
+                f"Currently, the antiflood trigger when {cfg.get('flood_messages', 5)} messages "
+                f"are sent in {cfg.get('flood_seconds', 3)} seconds."
+            )
+            await fast_edit(query, text, get_antiflood_number_grid(cid, mode="time"))
+        return
+
+    if data.startswith("flval_"):
+        parts = data.split("_")
+        mode, val, cid = parts[1], int(parts[2]), int(parts[3])
+        if mode == "msg":
+            cfg["flood_messages"] = val
+        else:
+            cfg["flood_seconds"] = val
+        save_config(cid, cfg)
+        await fast_edit(query, get_antiflood_text(cid), get_antiflood_main_keyboard(cid))
+        return
+
+    if data.startswith("flpen_"):
+        pen = data.split("_")[1]
+        cid = int(data.split("_")[2])
+        cfg["flood_penalty"] = pen
+        save_config(cid, cfg)
+        await fast_edit(query, get_antiflood_text(cid), get_antiflood_main_keyboard(cid))
+        return
+
+    if data.startswith("fltog_del_"):
+        cid = int(data.split("_")[2])
+        cfg["flood_delete"] = not cfg.get("flood_delete", True)
+        save_config(cid, cfg)
+        await fast_edit(query, get_antiflood_text(cid), get_antiflood_main_keyboard(cid))
+        return
+
+    if data.startswith("flset_dur_"):
+        parts = data.split("_")
+        ptype, cid = parts[2], int(parts[3])
+        user_states[(cid, user.id)] = f"awaiting_flood_dur_{ptype}"
+        text = (
+            f"Send now the duration of the chosen punishment ({ptype})\n\n"
+            "<b>Minimum:</b> 30 seconds\n"
+            "<b>Maximum:</b> 365 days\n\n"
+            "<b>Example of format:</b> <code>3 month 2 days 12 hours 4 minutes 34 seconds</code>\n\n"
+            f"<b>Current duration:</b> {cfg.get('flood_duration_str', 'Off')}"
+        )
+        keyboard = [
+            [create_btn("0️⃣ Remove duration", callback_data=f"flrem_dur_{cid}")],
+            [create_btn("❌ Cancel", callback_data=f"cfg_view_flood_{cid}", style="danger")]
+        ]
+        await fast_edit(query, text, InlineKeyboardMarkup(keyboard))
+        return
+
+    if data.startswith("flrem_dur_"):
+        cid = int(data.split("_")[2])
+        cfg["flood_duration_sec"] = 0
+        cfg["flood_duration_str"] = "Off"
+        save_config(cid, cfg)
+        await query.answer("Duration removed!")
+        await fast_edit(query, get_antiflood_text(cid), get_antiflood_main_keyboard(cid))
+        return
+
+    # 3. WELCOME SYSTEM HUBS & ACTIONS
     if data.startswith("cfg_view_welcome_"):
         cid = int(data.split("_")[3])
         user_states.pop((cid, user.id), None)
@@ -1117,7 +1320,6 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
         await fast_edit(query, "💬 <b>Welcome Message</b>", get_welcome_customize_keyboard(cid))
         return
 
-    # Previews
     if data.startswith("wlc_see_text_"):
         cid = int(data.split("_")[3])
         w_text = format_template(cfg.get("welcome_text", "No text set."), user, chat, cfg)
@@ -1181,7 +1383,7 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
         await fast_edit(query, text, InlineKeyboardMarkup(keyboard))
         return
 
-    # 3. REGULATIONS HUB
+    # 4. REGULATIONS HUB
     if data.startswith("cfg_view_reg_"):
         cid = int(data.split("_")[3])
         user_states.pop((cid, user.id), None)
@@ -1281,7 +1483,7 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
             await query.answer(f"Preview error: {e}", show_alert=True)
         return
 
-    # 4. COMMANDS PERMISSIONS MATRIX
+    # 5. COMMANDS PERMISSIONS MATRIX
     if data.startswith("reg_cmd_perms_"):
         cid = int(data.split("_")[3])
         text = (
@@ -1319,7 +1521,7 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
         await fast_edit(query, text, get_cmd_permissions_keyboard(cid))
         return
 
-    # 5. ANTI-SPAM HUB
+    # 6. ANTI-SPAM HUB
     if data.startswith("aspam_main_"):
         cid = int(data.split("_")[2])
         text = "✉️ <b>Anti-Spam</b>\nIn this menu you can decide whether to protect your groups from unnecessary links, forwards, and quotes."
@@ -1495,8 +1697,26 @@ async def interactive_state_processor(update: Update, context: ContextTypes.DEFA
     msg = update.message
     text = msg.text or msg.caption or ""
 
+    # Antiflood Duration Input
+    if state.startswith("awaiting_flood_dur_"):
+        ptype = state.split("_")[3]
+        parsed_sec = parse_time_duration(text)
+
+        if parsed_sec < 30 or parsed_sec > 31536000:
+            await msg.reply_text("❌ Duration must be between 30 seconds and 365 days.\nTry again:")
+            user_states[state_key] = state
+            return True
+
+        cfg["flood_duration_sec"] = parsed_sec
+        cfg["flood_duration_str"] = text.strip()
+        save_config(chat_id, cfg)
+
+        kb = [[create_btn("⬅️ Back to Antiflood", callback_data=f"cfg_view_flood_{chat_id}")]]
+        await msg.reply_text(f"✅ <b>Antiflood {ptype} duration set to {text}!</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
+        return True
+
     # Regulations States
-    if state == "awaiting_reg_text":
+    elif state == "awaiting_reg_text":
         cfg["rules_text"] = text
         save_config(chat_id, cfg)
         kb = [[create_btn("⬅️ Back", callback_data=f"cfg_view_reg_{chat_id}")]]
@@ -1733,7 +1953,7 @@ async def new_member_welcome_handler(update: Update, context: ContextTypes.DEFAU
         if sent_msg and cfg.get("welcome_delete_last"):
             last_welcome_messages[chat.id] = sent_msg.message_id
 
-# ----------------- SECURITY & AUTO MODERATION ----------------- #
+# ----------------- SECURITY & AUTO MODERATION (ANTIFLOOD + ANTISPAM) ----------------- #
 async def security_moderator(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.from_user:
         return
@@ -1752,6 +1972,25 @@ async def security_moderator(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if await is_user_admin(chat.id, user.id, context):
         return
 
+    # --- 1. ANTIFLOOD DETECTION SYSTEM ---
+    penalty = cfg.get("flood_penalty", "Off")
+    if penalty != "Off" or cfg.get("flood_delete"):
+        now = time.time()
+        max_msgs = cfg.get("flood_messages", 5)
+        window = cfg.get("flood_seconds", 3)
+
+        user_floods = flood_tracker.setdefault((chat.id, user.id), [])
+        # Keep only timestamps within window
+        user_floods = [t for t in user_floods if now - t <= window]
+        user_floods.append(now)
+        flood_tracker[(chat.id, user.id)] = user_floods
+
+        if len(user_floods) >= max_msgs:
+            flood_tracker.pop((chat.id, user.id), None)
+            dur_sec = cfg.get("flood_duration_sec", 0)
+            await execute_punishment(penalty, cfg.get("flood_delete", True), update, context, f"Flooding ({len(user_floods)} msgs in {window}s)", duration_sec=dur_sec)
+            return
+
     def is_whitelisted(item: str) -> bool:
         item_low = item.lower()
         if any(exc in item_low for exc in wl):
@@ -1760,13 +1999,13 @@ async def security_moderator(update: Update, context: ContextTypes.DEFAULT_TYPE)
             return True
         return False
 
-    # 1. FORWARDS & QUOTES
+    # 2. FORWARDS & QUOTES
     if msg.forward_origin:
         origin_type = msg.forward_origin.type
         is_quote = getattr(msg, "quote", None) is not None
         prefix = "quote" if is_quote else "fwd"
         should_del = cfg.get(f"{prefix}_delete", False)
-        penalty = "Off"
+        pen = "Off"
 
         sender_title = getattr(msg.forward_origin, 'chat', None)
         sender_user = getattr(msg.forward_origin, 'sender_user', None)
@@ -1774,20 +2013,20 @@ async def security_moderator(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
         if not is_whitelisted(origin_str):
             if origin_type == "channel":
-                penalty = cfg.get(f"{prefix}_channels_penalty", "Off")
+                pen = cfg.get(f"{prefix}_channels_penalty", "Off")
             elif origin_type == "chat":
-                penalty = cfg.get(f"{prefix}_groups_penalty", "Off")
+                pen = cfg.get(f"{prefix}_groups_penalty", "Off")
             elif origin_type == "user":
                 if sender_user and sender_user.is_bot:
-                    penalty = cfg.get(f"{prefix}_bots_penalty", "Off")
+                    pen = cfg.get(f"{prefix}_bots_penalty", "Off")
                 else:
-                    penalty = cfg.get(f"{prefix}_users_penalty", "Off")
+                    pen = cfg.get(f"{prefix}_users_penalty", "Off")
 
-            if penalty != "Off" or should_del:
-                await execute_punishment(penalty, should_del, update, context, f"{prefix.capitalize()} from {origin_type}")
+            if pen != "Off" or should_del:
+                await execute_punishment(pen, should_del, update, context, f"{prefix.capitalize()} from {origin_type}")
                 return
 
-    # 2. TOTAL LINKS BLOCK
+    # 3. TOTAL LINKS BLOCK
     all_links = re.findall(r"(https?://\S+|www\.\S+|\bt\.me/\S+)", text, re.IGNORECASE)
     if all_links:
         if cfg["totallinks_penalty"] != "Off" or cfg["totallinks_delete"]:
@@ -1803,7 +2042,7 @@ async def security_moderator(update: Update, context: ContextTypes.DEFAULT_TYPE)
                     await execute_punishment(cfg["tglinks_penalty"], cfg["tglinks_delete"], update, context, "Telegram link")
                     return
 
-    # 3. BOTS ANTISPAM
+    # 4. BOTS ANTISPAM
     if cfg.get("spam_bots"):
         bot_matches = re.findall(r"(?:t\.me/|@)(\w+bot)\b", text, re.IGNORECASE)
         for b_name in bot_matches:
@@ -1811,7 +2050,7 @@ async def security_moderator(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 await execute_punishment(cfg["tglinks_penalty"], cfg["tglinks_delete"], update, context, "Bot link/mention")
                 return
 
-    # 4. USERNAME ANTISPAM
+    # 5. USERNAME ANTISPAM
     if cfg.get("spam_usernames"):
         usernames = re.findall(r"@(\w+)", text)
         for un in usernames:
@@ -1893,7 +2132,7 @@ def main():
     app.add_handler(CommandHandler("me", me_command))
     app.add_handler(CommandHandler("topic_welcome", topic_welcome_command))
 
-    # Fast Single Router
+    # Single Fast Router
     app.add_handler(CallbackQueryHandler(unified_callback_handler))
 
     # Handlers
@@ -1901,7 +2140,7 @@ def main():
     app.add_handler(MessageHandler(filters.Regex(r"(?i)^pip3?\s+install\s+"), auto_pip_installer))
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, security_moderator))
 
-    print("🛡 Group Help Security Bot running with SQLite Permanent Persistence...")
+    print("🛡 Group Help Security Bot running smoothly with complete Antiflood system & DB persistence...")
     app.run_polling()
 
 if __name__ == "__main__":
