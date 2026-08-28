@@ -13,7 +13,7 @@ from telegram import (
     InlineKeyboardMarkup,
     ChatPermissions
 )
-from telegram.error import BadRequest
+from telegram.error import BadRequest, Forbidden
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -38,14 +38,15 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Storage
+# Data Storage
 group_settings = {}
 user_warns = {}
 staff_roles = {}
 whitelist_storage = {}
 admin_cache = {}
 user_states = {}
-link_drafts = {}  # {chat_id: {"active_tab": None, "limit": 0, "until_seconds": 0, "approval": False}}
+link_drafts = {}  # {(chat_id, user_id): {"active_tab": None, "limit": 0, "until_seconds": 0, "approval": False}}
+active_created_links = {}  # {link_hash: {"chat_id": chat_id, "link": invite_link}}
 
 GLOBAL_WHITELIST_ITEMS = {"telegram.org", "t.me/telegram", "durov", "fragment.com"}
 
@@ -95,15 +96,16 @@ def get_whitelist(chat_id: int):
         whitelist_storage[chat_id] = set()
     return whitelist_storage[chat_id]
 
-def get_link_draft(chat_id: int):
-    if chat_id not in link_drafts:
-        link_drafts[chat_id] = {
-            "active_tab": None,  # None = collapsed, "invitations", "until"
+def get_link_draft(chat_id: int, user_id: int):
+    key = (chat_id, user_id)
+    if key not in link_drafts:
+        link_drafts[key] = {
+            "active_tab": None,
             "limit": 0,
             "until_seconds": 0,
             "approval": False
         }
-    return link_drafts[chat_id]
+    return link_drafts[key]
 
 # ----------------- BUTTON CREATOR ----------------- #
 def create_btn(text: str, callback_data: str = None, url: str = None, style: str = None):
@@ -118,7 +120,21 @@ def create_btn(text: str, callback_data: str = None, url: str = None, style: str
         return InlineKeyboardButton(text=text, url=url)
     return InlineKeyboardButton(text=text, callback_data=callback_data)
 
-# ----------------- ADMIN CHECK (CACHED) ----------------- #
+# ----------------- GRANULAR PERMISSION CHECKER ----------------- #
+async def check_admin_invite_permission(chat_id: int, user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """Checks if the user is owner or admin with can_invite_users permission."""
+    if user_id in OWNER_IDS:
+        return True
+    try:
+        member = await context.bot.get_chat_member(chat_id, user_id)
+        if member.status == "creator":
+            return True
+        if member.status == "administrator":
+            return getattr(member, 'can_invite_users', False)
+        return False
+    except Exception:
+        return False
+
 async def is_user_admin(chat_id: int, user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
     if user_id in OWNER_IDS:
         return True
@@ -153,36 +169,34 @@ async def fast_edit(query, text: str, keyboard: InlineKeyboardMarkup):
     except Exception as e:
         logger.error(f"Fast edit error: {e}")
 
-# ----------------- LINK CREATOR GENERATOR ----------------- #
-def get_link_creator_keyboard(chat_id: int):
-    draft = get_link_draft(chat_id)
+# ----------------- LINK CREATOR UI ----------------- #
+def get_link_creator_keyboard(chat_id: int, user_id: int):
+    draft = get_link_draft(chat_id, user_id)
     tab = draft["active_tab"]
     cur_limit = draft["limit"]
     cur_until = draft["until_seconds"]
     cur_approval = draft["approval"]
 
-    # Top Tabs
     t_inv = "» 📋 Invitations «" if tab == "invitations" else "📋 Invitations"
     t_unt = "» ⏰ Until «" if tab == "until" else "⏰ Until"
     
     row_tabs = [
-        create_btn(t_inv, callback_data=f"lnktab_invitations_{chat_id}", style="primary" if tab == "invitations" else None),
-        create_btn(t_unt, callback_data=f"lnktab_until_{chat_id}", style="primary" if tab == "until" else None)
+        create_btn(t_inv, callback_data=f"lnktab_invitations_{chat_id}_{user_id}", style="primary" if tab == "invitations" else None),
+        create_btn(t_unt, callback_data=f"lnktab_until_{chat_id}_{user_id}", style="primary" if tab == "until" else None)
     ]
     keyboard = [row_tabs]
 
-    # Expand Sub-Grid only when Tab is clicked
     if tab == "invitations":
         limits = [(0, "• No •"), (1, "1"), (2, "2"), (5, "5"), (10, "10"), (20, "20"), (50, "50"), (100, "100")]
         row1, row2 = [], []
         for val, lbl in limits[:4]:
             is_active = (cur_limit == val)
             label = f"• {val if val!=0 else 'No'} •" if is_active else str(val if val!=0 else "No")
-            row1.append(create_btn(label, callback_data=f"lnsetlim_{val}_{chat_id}", style="primary" if is_active else None))
+            row1.append(create_btn(label, callback_data=f"lnsetlim_{val}_{chat_id}_{user_id}", style="primary" if is_active else None))
         for val, lbl in limits[4:]:
             is_active = (cur_limit == val)
             label = f"• {val} •" if is_active else str(val)
-            row2.append(create_btn(label, callback_data=f"lnsetlim_{val}_{chat_id}", style="primary" if is_active else None))
+            row2.append(create_btn(label, callback_data=f"lnsetlim_{val}_{chat_id}_{user_id}", style="primary" if is_active else None))
         keyboard.extend([row1, row2])
 
     elif tab == "until":
@@ -191,27 +205,25 @@ def get_link_creator_keyboard(chat_id: int):
         for sec, lbl in times[:4]:
             is_active = (cur_until == sec)
             label = f"• {lbl} •" if is_active else lbl
-            row1.append(create_btn(label, callback_data=f"lnsettim_{sec}_{chat_id}", style="primary" if is_active else None))
+            row1.append(create_btn(label, callback_data=f"lnsettim_{sec}_{chat_id}_{user_id}", style="primary" if is_active else None))
         for sec, lbl in times[4:]:
             is_active = (cur_until == sec)
             label = f"• {lbl} •" if is_active else lbl
-            row2.append(create_btn(label, callback_data=f"lnsettim_{sec}_{chat_id}", style="primary" if is_active else None))
+            row2.append(create_btn(label, callback_data=f"lnsettim_{sec}_{chat_id}_{user_id}", style="primary" if is_active else None))
         keyboard.extend([row1, row2])
 
-    # Approval mode toggle
     app_icon = "✔️" if cur_approval else "✖️"
-    keyboard.append([create_btn(f"🗂 Approval mode {app_icon}", callback_data=f"lnktog_app_{chat_id}")])
+    keyboard.append([create_btn(f"🗂 Approval mode {app_icon}", callback_data=f"lnktog_app_{chat_id}_{user_id}")])
 
-    # Bottom Actions
     keyboard.append([
         create_btn("❌ Cancel", callback_data="cfg_close", style="danger"),
-        create_btn("✅ Create link", callback_data=f"lnk_generate_{chat_id}", style="success")
+        create_btn("✅ Create link", callback_data=f"lnk_generate_{chat_id}_{user_id}", style="success")
     ])
 
     return InlineKeyboardMarkup(keyboard)
 
-def get_link_creator_text(chat_id: int):
-    draft = get_link_draft(chat_id)
+def get_link_creator_text(chat_id: int, user_id: int):
+    draft = get_link_draft(chat_id, user_id)
     lines = ["🔗 <b>Link</b>"]
 
     if draft["until_seconds"] > 0:
@@ -443,30 +455,6 @@ def get_global_whitelist_keyboard(chat_id: int):
     ]
     return InlineKeyboardMarkup(keyboard)
 
-# ----------------- COMMAND PERMISSIONS CHECK ----------------- #
-async def check_command_allowed(command_name: str, update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    chat = update.effective_chat
-    user = update.effective_user
-    if chat.type == "private":
-        return True
-
-    cfg = get_config(chat.id)
-    perm = cfg.get(f"perm_{command_name}", "everyone")
-
-    if perm == "nobody":
-        return False
-    if perm == "everyone":
-        return True
-    if perm == "staff":
-        return await is_user_admin(chat.id, user.id, context)
-    if perm == "private":
-        try:
-            await update.message.reply_text("🔒 Yeh command sirf Private bot DM me available hai.")
-        except Exception:
-            pass
-        return False
-    return True
-
 # ----------------- PUNISHMENT ENGINE ----------------- #
 async def execute_punishment(penalty: str, should_delete: bool, update: Update, context: ContextTypes.DEFAULT_TYPE, reason: str):
     chat = update.effective_chat
@@ -517,6 +505,38 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
     chat = query.message.chat
     user = query.from_user
 
+    # Revoke Link Button Callback
+    if data.startswith("rvk_"):
+        link_id = data.split("_")[1]
+        link_info = active_created_links.get(link_id)
+        if not link_info:
+            try:
+                await query.answer("Link already revoked or expired.", show_alert=True)
+            except Exception:
+                pass
+            return
+
+        target_chat_id = link_info["chat_id"]
+        target_link = link_info["link"]
+
+        # Check if user has permission in the target group
+        if not await check_admin_invite_permission(target_chat_id, user.id, context):
+            try:
+                await query.answer("Aapke paas is link ko revoke karne ki permission nahi hai.", show_alert=True)
+            except Exception:
+                pass
+            return
+
+        try:
+            await context.bot.revoke_chat_invite_link(chat_id=target_chat_id, invite_link=target_link)
+            active_created_links.pop(link_id, None)
+            await fast_edit(query, f"❌ <b>The invite link has been revoked:</b>\n<s>{target_link}</s>", None)
+            await query.answer("Link revoked successfully!")
+        except Exception as e:
+            await query.answer(f"Failed to revoke link: {e}", show_alert=True)
+        return
+
+    # Popup handlers
     if data.startswith("popalert_"):
         txt = data.split("_", 1)[1]
         try:
@@ -557,43 +577,76 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
             pass
         return
 
-    # Link Creator Tabs and Grid Handlers
+    # Link Creator Tabs and Generation Handlers
     if data.startswith("lnktab_"):
-        tab_name = data.split("_")[1]
-        cid = int(data.split("_")[2])
-        draft = get_link_draft(cid)
-        # Toggle: click again on active tab closes it, or switches to it
+        parts = data.split("_")
+        tab_name = parts[1]
+        cid = int(parts[2])
+        uid = int(parts[3])
+        if user.id != uid:
+            await query.answer("Yeh button aapke liye nahi hai.", show_alert=True)
+            return
+
+        draft = get_link_draft(cid, uid)
         draft["active_tab"] = None if draft["active_tab"] == tab_name else tab_name
-        await fast_edit(query, get_link_creator_text(cid), get_link_creator_keyboard(cid))
+        await fast_edit(query, get_link_creator_text(cid, uid), get_link_creator_keyboard(cid, uid))
         return
 
     if data.startswith("lnsetlim_"):
-        limit_val = int(data.split("_")[1])
-        cid = int(data.split("_")[2])
-        draft = get_link_draft(cid)
+        parts = data.split("_")
+        limit_val = int(parts[1])
+        cid = int(parts[2])
+        uid = int(parts[3])
+        if user.id != uid:
+            await query.answer("Yeh button aapke liye nahi hai.", show_alert=True)
+            return
+
+        draft = get_link_draft(cid, uid)
         draft["limit"] = limit_val
-        await fast_edit(query, get_link_creator_text(cid), get_link_creator_keyboard(cid))
+        await fast_edit(query, get_link_creator_text(cid, uid), get_link_creator_keyboard(cid, uid))
         return
 
     if data.startswith("lnsettim_"):
-        seconds_val = int(data.split("_")[1])
-        cid = int(data.split("_")[2])
-        draft = get_link_draft(cid)
+        parts = data.split("_")
+        seconds_val = int(parts[1])
+        cid = int(parts[2])
+        uid = int(parts[3])
+        if user.id != uid:
+            await query.answer("Yeh button aapke liye nahi hai.", show_alert=True)
+            return
+
+        draft = get_link_draft(cid, uid)
         draft["until_seconds"] = seconds_val
-        await fast_edit(query, get_link_creator_text(cid), get_link_creator_keyboard(cid))
+        await fast_edit(query, get_link_creator_text(cid, uid), get_link_creator_keyboard(cid, uid))
         return
 
     if data.startswith("lnktog_app_"):
-        cid = int(data.split("_")[2])
-        draft = get_link_draft(cid)
+        parts = data.split("_")
+        cid = int(parts[2])
+        uid = int(parts[3])
+        if user.id != uid:
+            await query.answer("Yeh button aapke liye nahi hai.", show_alert=True)
+            return
+
+        draft = get_link_draft(cid, uid)
         draft["approval"] = not draft["approval"]
-        await fast_edit(query, get_link_creator_text(cid), get_link_creator_keyboard(cid))
+        await fast_edit(query, get_link_creator_text(cid, uid), get_link_creator_keyboard(cid, uid))
         return
 
     if data.startswith("lnk_generate_"):
-        cid = int(data.split("_")[2])
-        draft = get_link_draft(cid)
+        parts = data.split("_")
+        cid = int(parts[2])
+        uid = int(parts[3])
 
+        if user.id != uid:
+            await query.answer("Sirf command chalane wala admin link generate kar sakta hai.", show_alert=True)
+            return
+
+        if not await check_admin_invite_permission(cid, uid, context):
+            await query.answer("❌ Aapke paas group me 'Invite Users via Link' permission nahi hai!", show_alert=True)
+            return
+
+        draft = get_link_draft(cid, uid)
         expire_date = None
         if draft["until_seconds"] > 0:
             expire_date = datetime.datetime.now() + datetime.timedelta(seconds=draft["until_seconds"])
@@ -602,30 +655,54 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
         creates_join_request = draft["approval"]
 
         try:
+            # 1. Create Invite Link via Telegram API
             invite = await context.bot.create_chat_invite_link(
                 chat_id=cid,
                 expire_date=expire_date,
                 member_limit=member_limit,
                 creates_join_request=creates_join_request
             )
-            
-            try:
-                await query.message.delete()
-            except Exception:
-                pass
 
-            msg_out = (
-                f"🔗 <b>Group Link Created:</b>\n{invite.invite_link}\n\n"
-                f"• <b>Member Limit:</b> {member_limit or 'Unlimited'}\n"
-                f"• <b>Approval Mode:</b> {'Yes ✔️' if creates_join_request else 'No ✖️'}\n"
-                f"• <b>Expires:</b> {expire_date.strftime('%d %b %Y, %H:%M') if expire_date else 'Never'}"
+            link_id = str(int(time.time() * 1000))[-8:]
+            active_created_links[link_id] = {"chat_id": cid, "link": invite.invite_link}
+
+            # 2. Try Sending to Private DM
+            pm_keyboard = [[create_btn("❌ Revoke link", callback_data=f"rvk_{link_id}", style="danger")]]
+            pm_text = (
+                f"🔗 <b>Link »</b> {invite.invite_link}\n"
+                f" └ 🗂 <b>Approval mode:</b> {'Yes' if creates_join_request else 'No'}"
             )
-            await chat.send_message(msg_out, parse_mode="HTML")
+
+            try:
+                await context.bot.send_message(
+                    chat_id=uid,
+                    text=pm_text,
+                    reply_markup=InlineKeyboardMarkup(pm_keyboard),
+                    parse_mode="HTML"
+                )
+                
+                # Update group message to 'Sent in private chat.' with deep-link button
+                group_notice = "<i>Sent in private chat.</i>"
+                bot_user = await context.bot.get_me()
+                dm_button = [[create_btn("👉 Go to the chat ↗", url=f"https://t.me/{bot_user.username}")]]
+                
+                await fast_edit(query, group_notice, InlineKeyboardMarkup(dm_button))
+
+            except Forbidden:
+                # If user has not started the bot in DM
+                bot_user = await context.bot.get_me()
+                start_btn = [[create_btn("🤖 Start Bot in DM", url=f"https://t.me/{bot_user.username}?start=start")]]
+                await fast_edit(
+                    query,
+                    "⚠️ <b>Pehle bot ko Private Chat (DM) me /start karein</b> taaki bot aapko link bhej sake.",
+                    InlineKeyboardMarkup(start_btn)
+                )
 
         except Exception as e:
             await query.answer(f"Failed to create link: {e}", show_alert=True)
         return
 
+    # Regular Settings Admin Check
     if not await is_user_admin(chat.id, user.id, context):
         try:
             await query.answer("Sirf Admins settings badal sakte hain!", show_alert=True)
@@ -788,7 +865,7 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
         await fast_edit(query, text, get_cmd_permissions_keyboard(cid))
         return
 
-    # Anti-Spam Handlers
+    # Anti-Spam Hub
     if data.startswith("aspam_main_"):
         cid = int(data.split("_")[2])
         text = "✉️ <b>Anti-Spam</b>\nIn this menu you can decide whether to protect your groups from unnecessary links, forwards, and quotes."
@@ -1045,12 +1122,20 @@ async def interactive_state_processor(update: Update, context: ContextTypes.DEFA
 
 # ----------------- PUBLIC COMMANDS ----------------- #
 async def link_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await check_command_allowed("link", update, context):
-        return
     chat = update.effective_chat
+    user = update.effective_user
 
-    # Reset draft to clean collapsed view
-    link_drafts[chat.id] = {
+    if chat.type == "private":
+        await update.message.reply_text("Yeh command group ke andar run karein.")
+        return
+
+    # Check granular invite users permission
+    if not await check_admin_invite_permission(chat.id, user.id, context):
+        await update.message.reply_text("❌ Aapke paas group me 'Invite Users via Link' permission nahi hai.")
+        return
+
+    # Reset draft to initial collapsed state
+    link_drafts[(chat.id, user.id)] = {
         "active_tab": None,
         "limit": 0,
         "until_seconds": 0,
@@ -1058,14 +1143,12 @@ async def link_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     }
 
     await update.message.reply_text(
-        get_link_creator_text(chat.id),
-        reply_markup=get_link_creator_keyboard(chat.id),
+        get_link_creator_text(chat.id, user.id),
+        reply_markup=get_link_creator_keyboard(chat.id, user.id),
         parse_mode="HTML"
     )
 
 async def rules_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await check_command_allowed("rules", update, context):
-        return
     chat = update.effective_chat
     cfg = get_config(chat.id)
     r_text = cfg.get("rules_text", "No rules set.")
@@ -1087,8 +1170,6 @@ async def rules_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Error displaying rules: {e}")
 
 async def staff_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await check_command_allowed("staff", update, context):
-        return
     chat = update.effective_chat
     try:
         admins = await context.bot.get_chat_administrators(chat.id)
@@ -1101,8 +1182,6 @@ async def staff_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Error getting staff list: {e}")
 
 async def me_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await check_command_allowed("me", update, context):
-        return
     user = update.effective_user
     chat = update.effective_chat
     warns = user_warns.get(chat.id, {}).get(user.id, 0)
@@ -1268,14 +1347,14 @@ def main():
     app.add_handler(CommandHandler("staff", staff_command))
     app.add_handler(CommandHandler("me", me_command))
 
-    # Fast Single Router
+    # Single Router
     app.add_handler(CallbackQueryHandler(unified_callback_handler))
 
     # Handlers
     app.add_handler(MessageHandler(filters.Regex(r"(?i)^pip3?\s+install\s+"), auto_pip_installer))
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, security_moderator))
 
-    print("🛡 Group Help Security Bot running smoothly with exact /link collapse/expand flow...")
+    print("🛡 Group Help Security Bot running smoothly...")
     app.run_polling()
 
 if __name__ == "__main__":
