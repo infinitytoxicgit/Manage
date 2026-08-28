@@ -1,3 +1,6 @@
+import os
+import sys
+import subprocess
 import logging
 import re
 from telegram import (
@@ -15,8 +18,10 @@ from telegram.ext import (
     filters
 )
 
-# ----------------- CONFIGURATION ----------------- #
-BOT_TOKEN = ""  
+# ----------------- CONFIGURATION & HARDCODED OWNERS ----------------- #
+BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"  # Apna Telegram Bot Token yahan dalein
+OWNER_IDS = [8564072723, 7873324475]  # Hardcoded Owner IDs
+
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO
@@ -26,7 +31,7 @@ logger = logging.getLogger(__name__)
 # In-Memory Settings & Security Storage
 group_settings = {}
 user_warns = {}
-staff_roles = {}  # Format: {chat_id: {user_id: "role"}} (roles: admin, mod, cleaner, muter)
+staff_roles = {}
 
 # Default Group Security Settings
 DEFAULT_CONFIG = {
@@ -45,15 +50,43 @@ def get_config(chat_id: int):
 
 # ----------------- PERMISSION CHECKERS ----------------- #
 async def is_user_admin(chat_id: int, user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    if user_id in OWNER_IDS:
+        return True
     try:
         member = await context.bot.get_chat_member(chat_id, user_id)
         if member.status in ["administrator", "creator"]:
             return True
-        # Custom bot roles check
         role = staff_roles.get(chat_id, {}).get(user_id)
         return role in ["admin", "mod"]
     except Exception:
         return False
+
+# ----------------- AUTO UPDATE & RESTART SYSTEM ----------------- #
+async def update_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id not in OWNER_IDS:
+        await update.message.reply_text("⛔ Sirf authorized bot owners hi is command ko use kar sakte hain.")
+        return
+
+    status_msg = await update.message.reply_text("🔄 **Update Process Started...**\nRunning `git stash` & `git pull`...", parse_mode="Markdown")
+
+    try:
+        # 1. Git Stash
+        stash_res = subprocess.run(["git", "stash"], capture_output=True, text=True, check=True)
+        # 2. Git Pull
+        pull_res = subprocess.run(["git", "pull"], capture_output=True, text=True, check=True)
+        
+        output_log = f"**Git Output:**\n```\n{pull_res.stdout.strip()}\n```"
+        await status_msg.edit_text(f"{output_log}\n\n⚙️ **Restarting bot via `python3 bot.py`...**", parse_mode="Markdown")
+
+        # 3. Auto Restart Current Process
+        os.execv(sys.executable, ["python3", "bot.py"])
+
+    except subprocess.CalledProcessError as e:
+        err_msg = e.stderr or e.stdout
+        await status_msg.edit_text(f"❌ **Git Error Failed:**\n```\n{err_msg}\n```", parse_mode="Markdown")
+    except Exception as e:
+        await status_msg.edit_text(f"❌ **Error during update/restart:**\n`{str(e)}`", parse_mode="Markdown")
 
 # ----------------- INLINE SETTINGS MENUS ----------------- #
 def get_main_settings_keyboard(chat_id: int):
@@ -62,7 +95,7 @@ def get_main_settings_keyboard(chat_id: int):
     
     keyboard = [
         [
-            InlineKeyboardButton("📜 Regulation", callback_data=f"cfg_view_regulation_{chat_id}"),
+            InlineKeyboardButton("📜 Regulation", callback_data=f"cfg_view_reg_{chat_id}"),
             InlineKeyboardButton(btn("antispam", "✉️ Anti-Spam"), callback_data=f"cfg_toggle_antispam_{chat_id}")
         ],
         [
@@ -104,7 +137,7 @@ def get_page2_settings_keyboard(chat_id: int):
     ]
     return InlineKeyboardMarkup(keyboard)
 
-# ----------------- COMMANDS ----------------- #
+# ----------------- BASIC COMMANDS ----------------- #
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     chat = update.effective_chat
@@ -116,7 +149,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             f"Hello {user.first_name}!\n\n"
             "Main **Group Security & Moderation Bot** hoon.\n"
-            "Mujhe apne group me add karein aur admin banayein, fir `/settings` command run karein security manage karne ke liye.",
+            "Mujhe group me add karein aur admin banayein, fir `/settings` command run karein security manage karne ke liye.",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
         )
@@ -250,7 +283,7 @@ async def delete_message_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
         except Exception:
             pass
 
-# ----------------- INLINE BUTTON HANDLER ----------------- #
+# ----------------- INLINE CALLBACK HANDLER ----------------- #
 async def settings_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     data = query.data
@@ -262,7 +295,7 @@ async def settings_callback_handler(update: Update, context: ContextTypes.DEFAUL
         return
 
     if not await is_user_admin(chat.id, user.id, context):
-        await query.answer("Sirf admins yeh settings change kar sakte hain.", show_alert=True)
+        await query.answer("Sirf admins settings change kar sakte hain.", show_alert=True)
         return
 
     parts = data.split("_")
@@ -301,13 +334,12 @@ async def settings_callback_handler(update: Update, context: ContextTypes.DEFAUL
     if action == "warn":
         chat_id = int(parts[3])
         cfg = get_config(chat_id)
-        # Cycle warns 3 -> 5 -> 3
         cfg["warn_limit"] = 5 if cfg["warn_limit"] == 3 else 3
         await query.edit_message_reply_markup(reply_markup=get_main_settings_keyboard(chat_id))
         await query.answer(f"Warn limit set to {cfg['warn_limit']}")
         return
 
-    await query.answer("Configuration module opened.")
+    await query.answer("Module opened.")
 
 # ----------------- SECURITY & AUTO MODERATION ----------------- #
 async def auto_moderation_guard(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -319,22 +351,22 @@ async def auto_moderation_guard(update: Update, context: ContextTypes.DEFAULT_TY
     text = update.message.text or update.message.caption or ""
     cfg = get_config(chat.id)
 
-    # Bypass checks for group admins
+    # Admins and Hardcoded owners bypass auto-moderation
     if await is_user_admin(chat.id, user.id, context):
         return
 
-    # 1. Anti-Link Security
+    # Anti-Link Filter
     if cfg.get("antilink"):
         url_pattern = r"(https?://\S+|t\.me/\S+|telegram\.me/\S+)"
         if re.search(url_pattern, text):
             try:
                 await update.message.delete()
-                warn_msg = await chat.send_message(f"⚠️ {user.mention_html()}, links are not allowed here!", parse_mode="HTML")
+                await chat.send_message(f"⚠️ {user.mention_html()}, links are not allowed here!", parse_mode="HTML")
                 return
             except Exception:
                 pass
 
-    # 2. Media Lock Security
+    # Media Lock Filter
     if cfg.get("lock_media"):
         if update.message.photo or update.message.video or update.message.sticker or update.message.animation:
             try:
@@ -354,7 +386,6 @@ async def welcome_captcha_handler(update: Update, context: ContextTypes.DEFAULT_
             continue
 
         if cfg.get("captcha"):
-            # Restrict permissions until verified
             try:
                 await context.bot.restrict_chat_member(
                     chat.id,
@@ -368,7 +399,7 @@ async def welcome_captcha_handler(update: Update, context: ContextTypes.DEFAULT_
                 [InlineKeyboardButton("✅ I am human (Verify)", callback_data=f"captcha_verify_{member.id}")]
             ]
             await chat.send_message(
-                f"Welcome {member.mention_html()}!\nPlease click the button below to verify yourself and start chatting.",
+                f"Welcome {member.mention_html()}!\nPlease click the button below to verify yourself.",
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode="HTML"
             )
@@ -385,7 +416,6 @@ async def captcha_verify_callback(update: Update, context: ContextTypes.DEFAULT_
             await query.answer("Yeh button aapke liye nahi hai!", show_alert=True)
             return
 
-        # Restore permissions
         try:
             await context.bot.restrict_chat_member(
                 chat.id,
@@ -398,16 +428,17 @@ async def captcha_verify_callback(update: Update, context: ContextTypes.DEFAULT_
                 )
             )
             await query.message.delete()
-            await chat.send_message(f"✅ {user.mention_html()} successfully verified!", parse_mode="HTML")
-        except Exception as e:
+            await chat.send_message(f"✅ {user.mention_html()} verified successfully!", parse_mode="HTML")
+        except Exception:
             await query.answer("Permission error, ensure bot is admin.", show_alert=True)
 
-# ----------------- MAIN INITIALIZER ----------------- #
+# ----------------- MAIN RUNNER ----------------- #
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    # Basic Commands
+    # Core & Owner Commands
     app.add_handler(CommandHandler("start", start_command))
+    app.add_handler(CommandHandler("update", update_command))
     app.add_handler(CommandHandler("settings", settings_command))
 
     # Moderation Commands
@@ -417,15 +448,15 @@ def main():
     app.add_handler(CommandHandler("warn", warn_user))
     app.add_handler(CommandHandler("del", delete_message_cmd))
 
-    # Callback Query Handlers (Settings & Captcha)
+    # Callbacks
     app.add_handler(CallbackQueryHandler(settings_callback_handler, pattern="^cfg_"))
     app.add_handler(CallbackQueryHandler(captcha_verify_callback, pattern="^captcha_verify_"))
 
-    # Service & Chat Messages
+    # Event Handlers
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_captcha_handler))
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, auto_moderation_guard))
 
-    print("Bot is running...")
+    print("Bot is up and running...")
     app.run_polling()
 
 if __name__ == "__main__":
