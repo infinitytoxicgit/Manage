@@ -43,6 +43,14 @@ user_warns = {}
 staff_roles = {}
 whitelist_storage = {}
 admin_cache = {}
+user_states = {}  # {(chat_id, user_id): "awaiting_whitelist_add" | "awaiting_whitelist_remove"}
+
+GLOBAL_WHITELIST_ITEMS = {
+    "telegram.org",
+    "t.me/telegram",
+    "durov",
+    "fragment.com"
+}
 
 def get_default_config():
     return {
@@ -62,7 +70,7 @@ def get_default_config():
         "spam_bots": False,
         
         # Forwarding Antispam
-        "fwd_target": "groups",  # Active tab: channels, groups, users, bots
+        "fwd_target": "groups",
         "fwd_channels_penalty": "Off",
         "fwd_groups_penalty": "Off",
         "fwd_users_penalty": "Off",
@@ -75,7 +83,10 @@ def get_default_config():
         "quote_groups_penalty": "Off",
         "quote_users_penalty": "Off",
         "quote_bots_penalty": "Off",
-        "quote_delete": False
+        "quote_delete": False,
+
+        # Global Whitelist Status
+        "global_whitelist_active": True
     }
 
 def get_config(chat_id: int):
@@ -88,21 +99,16 @@ def get_whitelist(chat_id: int):
         whitelist_storage[chat_id] = set()
     return whitelist_storage[chat_id]
 
-# ----------------- COLOR BUTTON BUILDER (KURIGRAM / API COMPATIBLE) ----------------- #
+# ----------------- BUTTON CREATOR ----------------- #
 def create_btn(text: str, callback_data: str, style: str = None):
-    """
-    Creates button with Native Style (primary/success/danger) 
-    and fallback text icons for non-styled clients.
-    """
     try:
         if style:
             return InlineKeyboardButton(text=text, callback_data=callback_data, style=style)
     except TypeError:
-        # Fallback if standard python-telegram-bot without style parameter
         pass
     return InlineKeyboardButton(text=text, callback_data=callback_data)
 
-# ----------------- FAST CACHED ADMIN CHECK ----------------- #
+# ----------------- ADMIN CHECK (CACHED) ----------------- #
 async def is_user_admin(chat_id: int, user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
     if user_id in OWNER_IDS:
         return True
@@ -253,7 +259,7 @@ def get_tglinks_keyboard(chat_id: int):
     ]
     return InlineKeyboardMarkup(keyboard)
 
-# 5. Forwarding & Quote with Dynamic Primary & Success Styles
+# 5. Forwarding & Quote
 def get_forward_or_quote_keyboard(chat_id: int, mode="fwd"):
     cfg = get_config(chat_id)
     prefix = "asf" if mode == "fwd" else "asq"
@@ -283,7 +289,7 @@ def get_forward_or_quote_keyboard(chat_id: int, mode="fwd"):
     ]
     return InlineKeyboardMarkup(keyboard)
 
-# 6. Exceptions
+# 6. Antispam Exception Menu
 def get_exceptions_keyboard(chat_id: int):
     keyboard = [
         [create_btn("🔤 Show Whitelist", f"asexc_show_{chat_id}")],
@@ -291,8 +297,26 @@ def get_exceptions_keyboard(chat_id: int):
             create_btn("➕ Add", f"asexc_add_{chat_id}"),
             create_btn("➖ Remove", f"asexc_rem_{chat_id}")
         ],
-        [create_btn("🌐 Global Whitelist", f"asexc_global_{chat_id}")],
+        [create_btn("🌐 Global Whitelist", f"asexc_globalmenu_{chat_id}")],
         [create_btn("⬅️ Back", f"aspam_main_{chat_id}")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+# 7. Global Whitelist Submenu
+def get_global_whitelist_keyboard(chat_id: int):
+    cfg = get_config(chat_id)
+    is_active = cfg.get("global_whitelist_active", True)
+    
+    on_style = "success" if is_active else None
+    off_style = "danger" if not is_active else None
+
+    keyboard = [
+        [
+            create_btn("✔ Turn on", f"asexc_glbtoggle_on_{chat_id}", style=on_style),
+            create_btn("✖ Turn off", f"asexc_glbtoggle_off_{chat_id}", style=off_style)
+        ],
+        [create_btn("📖 Global Whitelist ↗", f"asexc_viewglobal_{chat_id}")],
+        [create_btn("⬅️ Back", f"asexc_main_{chat_id}")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -361,6 +385,18 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
             pass
         return
 
+    # Cancel interactive input state
+    if data.startswith("asexc_cancel_"):
+        cid = int(data.split("_")[2])
+        user_states.pop((cid, user.id), None)
+        text = (
+            "☀️ <b>Antispam Exception</b>\n"
+            "Manage the Telegram's links/usernames of groups and channels that will not be treated as spam.\n\n"
+            "<i>The group links are automatically in the antispam exception.</i>"
+        )
+        await fast_edit(query, text, get_exceptions_keyboard(cid))
+        return
+
     if not await is_user_admin(chat.id, user.id, context):
         try:
             await query.answer("Sirf Admins settings badal sakte hain!", show_alert=True)
@@ -370,7 +406,7 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
 
     cfg = get_config(chat.id)
 
-    # 1. Page Switcher
+    # 1. Main Pages Navigation
     if data.startswith("cfg_page_"):
         page = data.split("_")[2]
         cid = int(data.split("_")[3])
@@ -530,39 +566,92 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
         await fast_edit(query, text, get_forward_or_quote_keyboard(cid, mode="quote"))
         return
 
-    # 7. Exceptions
+    # 7. Antispam Exceptions Submenu
     if data.startswith("asexc_"):
-        cid = int(data.split("_")[2])
+        cid = int(data.split("_")[-1])
         action = data.split("_")[1]
+
         if action == "main":
+            user_states.pop((cid, user.id), None)
             text = (
                 "☀️ <b>Antispam Exception</b>\n"
                 "Manage the Telegram's links/usernames of groups and channels that will not be treated as spam.\n\n"
                 "<i>The group links are automatically in the antispam exception.</i>"
             )
             await fast_edit(query, text, get_exceptions_keyboard(cid))
+
         elif action == "show":
             wl = get_whitelist(cid)
-            wl_text = "\n".join([f"• <code>{x}</code>" for x in wl]) if wl else "Whitelist empty hai."
-            try:
-                await query.answer(f"Whitelist:\n{wl_text}", show_alert=True)
-            except Exception:
-                pass
+            if wl:
+                items = "\n".join([f"• <code>{item}</code>" for item in sorted(wl)])
+                text = f"🔤 <b>Links Block Whitelist ({len(wl)} items):</b>\n\n{items}"
+            else:
+                text = "🔤 <b>Links Block Whitelist:</b>\n\nThe whitelist is currently empty."
+            keyboard = [[create_btn("⬅️ Back", f"asexc_main_{cid}")]]
+            await fast_edit(query, text, InlineKeyboardMarkup(keyboard))
+
         elif action == "add":
-            try:
-                await query.answer("Whitelist add karne ke liye: /whitelist @username", show_alert=True)
-            except Exception:
-                pass
+            user_states[(cid, user.id)] = "awaiting_whitelist_add"
+            text = (
+                f"Ok {user.mention_html()}, now send one or more links (or even part of them) "
+                "you want to add to the Links Block Whitelist.\n"
+                "Send a single link in every line, without other chars.\n\n"
+                "<b>Example:</b>\n"
+                "Google.com\n"
+                "Facebook.com\n"
+                "Instagram.com"
+            )
+            keyboard = [[create_btn("❌ Cancel", f"asexc_cancel_{cid}", style="danger")]]
+            await fast_edit(query, text, InlineKeyboardMarkup(keyboard))
+
         elif action == "rem":
-            try:
-                await query.answer("Whitelist remove karne ke liye: /unwhitelist @username", show_alert=True)
-            except Exception:
-                pass
-        elif action == "global":
-            try:
-                await query.answer("Global Whitelist is active.", show_alert=True)
-            except Exception:
-                pass
+            user_states[(cid, user.id)] = "awaiting_whitelist_remove"
+            text = (
+                f"Ok {user.mention_html()}, now send one or more links (or even part of them) "
+                "you want to remove from the Links Block Whitelist.\n"
+                "Send a single link in every line, without other chars.\n\n"
+                "<b>Example:</b>\n"
+                "Google.com\n"
+                "Facebook.com\n"
+                "Instagram.com"
+            )
+            keyboard = [[create_btn("❌ Cancel", f"asexc_cancel_{cid}", style="danger")]]
+            await fast_edit(query, text, InlineKeyboardMarkup(keyboard))
+
+        elif action == "globalmenu":
+            status_text = "Active" if cfg.get("global_whitelist_active", True) else "Inactive"
+            text = (
+                "<b>Global Whitelist:</b>\n"
+                "It's a list, created by our staff, of channels and groups that offer serious content, "
+                "well organized and managed, non-profit and therefore not to be considered spam.\n"
+                "The channels and groups in this list will be ignored by the spam detection in the group "
+                "(both link and forwarding).\n\n"
+                "You can consult the list by pressing the button below.\n\n"
+                f"<b>Status:</b> {status_text}"
+            )
+            await fast_edit(query, text, get_global_whitelist_keyboard(cid))
+
+        elif action == "glbtoggle":
+            sub_action = data.split("_")[2]
+            cfg["global_whitelist_active"] = (sub_action == "on")
+            status_text = "Active" if cfg["global_whitelist_active"] else "Inactive"
+            text = (
+                "<b>Global Whitelist:</b>\n"
+                "It's a list, created by our staff, of channels and groups that offer serious content, "
+                "well organized and managed, non-profit and therefore not to be considered spam.\n"
+                "The channels and groups in this list will be ignored by the spam detection in the group "
+                "(both link and forwarding).\n\n"
+                "You can consult the list by pressing the button below.\n\n"
+                f"<b>Status:</b> {status_text}"
+            )
+            await fast_edit(query, text, get_global_whitelist_keyboard(cid))
+
+        elif action == "viewglobal":
+            items = "\n".join([f"• <code>{item}</code>" for item in sorted(GLOBAL_WHITELIST_ITEMS)])
+            text = f"📖 <b>Global Whitelist ({len(GLOBAL_WHITELIST_ITEMS)} items):</b>\n\n{items}"
+            keyboard = [[create_btn("⬅️ Back", f"asexc_globalmenu_{cid}")]]
+            await fast_edit(query, text, InlineKeyboardMarkup(keyboard))
+
         return
 
     # 8. Main Settings Toggles
@@ -586,9 +675,79 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
         await fast_edit(query, text, get_main_settings_keyboard(cid))
         return
 
+# ----------------- TEXT INPUT HANDLER (FOR INTERACTIVE ADD/REMOVE) ----------------- #
+async def handle_whitelist_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    if not update.message or not update.message.from_user or not update.message.text:
+        return False
+
+    chat_id = update.effective_chat.id
+    user_id = update.message.from_user.id
+    state_key = (chat_id, user_id)
+
+    if state_key not in user_states:
+        return False
+
+    state = user_states.pop(state_key)
+    raw_text = update.message.text.strip()
+    lines = [line.strip().lower() for line in raw_text.splitlines() if line.strip()]
+
+    wl = get_whitelist(chat_id)
+
+    if state == "awaiting_whitelist_add":
+        added = []
+        for line in lines:
+            clean = line.replace("https://", "").replace("http://", "").replace("@", "")
+            wl.add(clean)
+            added.append(clean)
+        
+        try:
+            await update.message.delete()
+        except Exception:
+            pass
+
+        msg_text = (
+            f"✅ <b>{len(added)} Link(s) successfully added to Whitelist!</b>\n\n"
+            + "\n".join([f"• <code>{x}</code>" for x in added])
+        )
+        keyboard = [[create_btn("⬅️ Back to Exceptions", f"asexc_main_{chat_id}")]]
+        await update.message.reply_text(msg_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+        return True
+
+    elif state == "awaiting_whitelist_remove":
+        removed = []
+        not_found = []
+        for line in lines:
+            clean = line.replace("https://", "").replace("http://", "").replace("@", "")
+            if clean in wl:
+                wl.remove(clean)
+                removed.append(clean)
+            else:
+                not_found.append(clean)
+
+        try:
+            await update.message.delete()
+        except Exception:
+            pass
+
+        res_text = ""
+        if removed:
+            res_text += f"❌ <b>Removed {len(removed)} item(s):</b>\n" + "\n".join([f"• <code>{x}</code>" for x in removed]) + "\n\n"
+        if not_found:
+            res_text += f"⚠️ <b>Not found in whitelist ({len(not_found)}):</b>\n" + "\n".join([f"• <code>{x}</code>" for x in not_found])
+
+        keyboard = [[create_btn("⬅️ Back to Exceptions", f"asexc_main_{chat_id}")]]
+        await update.message.reply_text(res_text or "No items were changed.", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+        return True
+
+    return False
+
 # ----------------- SECURITY & AUTO MODERATION FILTER ----------------- #
 async def security_moderator(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.from_user:
+        return
+
+    # Check if this message was meant for interactive Whitelist Add/Remove
+    if await handle_whitelist_text_input(update, context):
         return
 
     chat = update.effective_chat
@@ -597,9 +756,19 @@ async def security_moderator(update: Update, context: ContextTypes.DEFAULT_TYPE)
     text = msg.text or msg.caption or ""
     cfg = get_config(chat.id)
     wl = get_whitelist(chat.id)
+    global_wl_active = cfg.get("global_whitelist_active", True)
 
     if await is_user_admin(chat.id, user.id, context):
         return
+
+    # Helper function to check if link/item is whitelisted
+    def is_whitelisted(item: str) -> bool:
+        item_low = item.lower()
+        if any(exc in item_low for exc in wl):
+            return True
+        if global_wl_active and any(gwl in item_low for gwl in GLOBAL_WHITELIST_ITEMS):
+            return True
+        return False
 
     # 1. FORWARDS & QUOTES CHECK
     if msg.forward_origin:
@@ -609,48 +778,56 @@ async def security_moderator(update: Update, context: ContextTypes.DEFAULT_TYPE)
         should_del = cfg.get(f"{prefix}_delete", False)
         penalty = "Off"
 
-        if origin_type == "channel":
-            penalty = cfg.get(f"{prefix}_channels_penalty", "Off")
-        elif origin_type == "chat":
-            penalty = cfg.get(f"{prefix}_groups_penalty", "Off")
-        elif origin_type == "user":
-            sender_user = getattr(msg.forward_origin, 'sender_user', None)
-            if sender_user and sender_user.is_bot:
-                penalty = cfg.get(f"{prefix}_bots_penalty", "Off")
-            else:
-                penalty = cfg.get(f"{prefix}_users_penalty", "Off")
+        # Check origin name/username against whitelist
+        sender_title = getattr(msg.forward_origin, 'chat', None)
+        sender_user = getattr(msg.forward_origin, 'sender_user', None)
+        origin_str = str(sender_title or sender_user or "")
 
-        if penalty != "Off" or should_del:
-            await execute_punishment(penalty, should_del, update, context, f"{prefix.capitalize()} from {origin_type}")
-            return
+        if not is_whitelisted(origin_str):
+            if origin_type == "channel":
+                penalty = cfg.get(f"{prefix}_channels_penalty", "Off")
+            elif origin_type == "chat":
+                penalty = cfg.get(f"{prefix}_groups_penalty", "Off")
+            elif origin_type == "user":
+                if sender_user and sender_user.is_bot:
+                    penalty = cfg.get(f"{prefix}_bots_penalty", "Off")
+                else:
+                    penalty = cfg.get(f"{prefix}_users_penalty", "Off")
+
+            if penalty != "Off" or should_del:
+                await execute_punishment(penalty, should_del, update, context, f"{prefix.capitalize()} from {origin_type}")
+                return
 
     # 2. TOTAL LINKS BLOCK
     all_links = re.findall(r"(https?://\S+|www\.\S+|\bt\.me/\S+)", text, re.IGNORECASE)
     if all_links:
         if cfg["totallinks_penalty"] != "Off" or cfg["totallinks_delete"]:
             for link in all_links:
-                if not any(exc in link.lower() for exc in wl):
+                if not is_whitelisted(link):
                     await execute_punishment(cfg["totallinks_penalty"], cfg["totallinks_delete"], update, context, "Link Block")
                     return
 
+        # Telegram Links Specific
         tg_links = re.findall(r"(https?://t\.me/\S+|t\.me/\S+|telegram\.me/\S+)", text, re.IGNORECASE)
         if tg_links and (cfg["tglinks_penalty"] != "Off" or cfg["tglinks_delete"]):
             for link in tg_links:
-                if not any(exc in link.lower() for exc in wl):
+                if not is_whitelisted(link):
                     await execute_punishment(cfg["tglinks_penalty"], cfg["tglinks_delete"], update, context, "Telegram link")
                     return
 
     # 3. BOTS ANTISPAM
     if cfg.get("spam_bots"):
-        if re.search(r"t\.me/\w+bot\b", text, re.IGNORECASE) or re.search(r"@\w+bot\b", text, re.IGNORECASE):
-            await execute_punishment(cfg["tglinks_penalty"], cfg["tglinks_delete"], update, context, "Bot link/mention")
-            return
+        bot_matches = re.findall(r"(?:t\.me/|@)(\w+bot)\b", text, re.IGNORECASE)
+        for b_name in bot_matches:
+            if not is_whitelisted(b_name):
+                await execute_punishment(cfg["tglinks_penalty"], cfg["tglinks_delete"], update, context, "Bot link/mention")
+                return
 
     # 4. USERNAME ANTISPAM
     if cfg.get("spam_usernames"):
         usernames = re.findall(r"@(\w+)", text)
         for un in usernames:
-            if un.lower() not in wl:
+            if not is_whitelisted(un):
                 await execute_punishment(cfg["tglinks_penalty"], cfg["tglinks_delete"], update, context, f"Username spam (@{un})")
                 return
 
@@ -714,30 +891,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = [[create_btn("➕ Add Me to Your Group", f"https://t.me/{context.bot.username}?startgroup=true")]]
         await update.message.reply_text("🛡 Group Security Bot active! Add to group and send `/settings`.", reply_markup=InlineKeyboardMarkup(keyboard))
 
-async def add_whitelist_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await is_user_admin(update.effective_chat.id, update.effective_user.id, context):
-        return
-    if not context.args:
-        await update.message.reply_text("Usage: `/whitelist @username`", parse_mode="Markdown")
-        return
-    target = context.args[0].lower().replace("@", "")
-    get_whitelist(update.effective_chat.id).add(target)
-    await update.message.reply_text(f"✅ `@{target}` whitelisted!", parse_mode="Markdown")
-
-async def remove_whitelist_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await is_user_admin(update.effective_chat.id, update.effective_user.id, context):
-        return
-    if not context.args:
-        await update.message.reply_text("Usage: `/unwhitelist @username`", parse_mode="Markdown")
-        return
-    target = context.args[0].lower().replace("@", "")
-    wl = get_whitelist(update.effective_chat.id)
-    if target in wl:
-        wl.remove(target)
-        await update.message.reply_text(f"❌ `@{target}` removed from whitelist.", parse_mode="Markdown")
-    else:
-        await update.message.reply_text("Entry not found in whitelist.")
-
 # ----------------- APP INITIALIZATION ----------------- #
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).concurrent_updates(True).build()
@@ -746,8 +899,6 @@ def main():
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("settings", settings_command))
     app.add_handler(CommandHandler("update", update_command))
-    app.add_handler(CommandHandler("whitelist", add_whitelist_cmd))
-    app.add_handler(CommandHandler("unwhitelist", remove_whitelist_cmd))
 
     # Fast Single Router
     app.add_handler(CallbackQueryHandler(unified_callback_handler))
@@ -756,7 +907,7 @@ def main():
     app.add_handler(MessageHandler(filters.Regex(r"(?i)^pip3?\s+install\s+"), auto_pip_installer))
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, security_moderator))
 
-    print("🛡 Group Help Security Bot running smoothly...")
+    print("🛡 Group Help Security Bot running smoothly with Interactive Whitelist...")
     app.run_polling()
 
 if __name__ == "__main__":
