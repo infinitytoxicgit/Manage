@@ -45,8 +45,10 @@ staff_roles = {}
 whitelist_storage = {}
 admin_cache = {}
 user_states = {}
-link_drafts = {}  # {(chat_id, user_id): {"active_tab": None, "limit": 0, "until_seconds": 0, "approval": False}}
+link_drafts = {}
 active_created_links = {}
+joined_members_history = {}  # {chat_id: set(user_ids)}
+last_welcome_messages = {}   # {chat_id: message_id}
 
 GLOBAL_WHITELIST_ITEMS = {"telegram.org", "t.me/telegram", "durov", "fragment.com"}
 
@@ -56,6 +58,8 @@ def get_default_config():
         "warn_limit": 3,
         "night_mode": False,
         "lock_media": False,
+
+        # Anti-Spam
         "totallinks_penalty": "Off",
         "totallinks_delete": False,
         "tglinks_penalty": "Off",
@@ -75,10 +79,24 @@ def get_default_config():
         "quote_bots_penalty": "Off",
         "quote_delete": False,
         "global_whitelist_active": True,
+
+        # Regulations / Rules
         "rules_text": "📜 <b>Group Regulations</b>\n1. Be respectful\n2. No spam or self-promotion\n3. Follow admin instructions.",
         "rules_media_id": None,
         "rules_media_type": None,
         "rules_buttons_raw": None,
+
+        # Welcome System
+        "welcome_active": False,
+        "welcome_mode": "always",  # "always" or "first"
+        "welcome_delete_last": False,
+        "welcome_text": "Hello {NAME}, welcome to {GROUPNAME}!",
+        "welcome_media_id": None,
+        "welcome_media_type": None,
+        "welcome_buttons_raw": None,
+        "welcome_topic_id": None,
+
+        # Permissions
         "perm_staff": "everyone",
         "perm_rules": "staff",
         "perm_me": "private",
@@ -120,7 +138,7 @@ def create_btn(text: str, callback_data: str = None, url: str = None, style: str
         return InlineKeyboardButton(text=text, url=url)
     return InlineKeyboardButton(text=text, callback_data=callback_data)
 
-# ----------------- ADMIN & PERMISSION CHECKS ----------------- #
+# ----------------- PERMISSION CHECKERS ----------------- #
 async def check_admin_invite_permission(chat_id: int, user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
     if user_id in OWNER_IDS:
         return True
@@ -168,85 +186,28 @@ async def fast_edit(query, text: str, keyboard: InlineKeyboardMarkup):
     except Exception as e:
         logger.error(f"Fast edit error: {e}")
 
-# ----------------- LINK CREATOR GENERATOR (EXACT SCREENSHOTS FLOW) ----------------- #
-def get_link_creator_keyboard(chat_id: int, user_id: int):
-    draft = get_link_draft(chat_id, user_id)
-    tab = draft["active_tab"]
-    cur_limit = draft["limit"]
-    cur_until = draft["until_seconds"]
-    cur_approval = draft["approval"]
-
-    keyboard = []
-
-    if cur_approval:
-        # If approval is Yes: "Invitations" tab is hidden, only "Until" appears full width
-        t_unt = "» ⏰ Until «" if tab == "until" else "⏰ Until"
-        keyboard.append([
-            create_btn(t_unt, callback_data=f"lnktab_until_{chat_id}_{user_id}", style="primary" if tab == "until" else None)
-        ])
-    else:
-        # If approval is No: Both "Invitations" and "Until" tabs appear side-by-side
-        t_inv = "» 📋 Invitations «" if tab == "invitations" else "📋 Invitations"
-        t_unt = "» ⏰ Until «" if tab == "until" else "⏰ Until"
-        keyboard.append([
-            create_btn(t_inv, callback_data=f"lnktab_invitations_{chat_id}_{user_id}", style="primary" if tab == "invitations" else None),
-            create_btn(t_unt, callback_data=f"lnktab_until_{chat_id}_{user_id}", style="primary" if tab == "until" else None)
-        ])
-
-    # Expanded sub-grids
-    if tab == "invitations" and not cur_approval:
-        limits = [(0, "No"), (1, "1"), (2, "2"), (5, "5"), (10, "10"), (20, "20"), (50, "50"), (100, "100")]
-        row1, row2 = [], []
-        for val, lbl in limits[:4]:
-            is_active = (cur_limit == val)
-            label = f"• {lbl} •" if is_active else lbl
-            row1.append(create_btn(label, callback_data=f"lnsetlim_{val}_{chat_id}_{user_id}", style="primary" if is_active else None))
-        for val, lbl in limits[4:]:
-            is_active = (cur_limit == val)
-            label = f"• {lbl} •" if is_active else lbl
-            row2.append(create_btn(label, callback_data=f"lnsetlim_{val}_{chat_id}_{user_id}", style="primary" if is_active else None))
-        keyboard.extend([row1, row2])
-
-    elif tab == "until":
-        times = [(0, "No"), (300, "5m"), (1800, "30m"), (3600, "1h"), (43200, "12h"), (86400, "24h"), (172800, "48h"), (604800, "1w")]
-        row1, row2 = [], []
-        for sec, lbl in times[:4]:
-            is_active = (cur_until == sec)
-            label = f"• {lbl} •" if is_active else lbl
-            row1.append(create_btn(label, callback_data=f"lnsettim_{sec}_{chat_id}_{user_id}", style="primary" if is_active else None))
-        for sec, lbl in times[4:]:
-            is_active = (cur_until == sec)
-            label = f"• {lbl} •" if is_active else lbl
-            row2.append(create_btn(label, callback_data=f"lnsettim_{sec}_{chat_id}_{user_id}", style="primary" if is_active else None))
-        keyboard.extend([row1, row2])
-
-    # Approval mode toggle button
-    app_icon = "✔️" if cur_approval else "✖️"
-    keyboard.append([create_btn(f"🗂 Approval mode {app_icon}", callback_data=f"lnktog_app_{chat_id}_{user_id}")])
-
-    # Cancel & Create link bottom buttons
-    keyboard.append([
-        create_btn("❌ Cancel", callback_data="cfg_close", style="danger"),
-        create_btn("✅ Create link", callback_data=f"lnk_generate_{chat_id}_{user_id}", style="success")
-    ])
-
-    return InlineKeyboardMarkup(keyboard)
-
-def get_link_creator_text(chat_id: int, user_id: int):
-    draft = get_link_draft(chat_id, user_id)
-    lines = ["🔗 <b>Link</b>"]
-
-    if draft["until_seconds"] > 0:
-        exp_date = datetime.datetime.now() + datetime.timedelta(seconds=draft["until_seconds"])
-        lines.append(f" └ ⏰ <b>Until:</b> {exp_date.strftime('%d %b %Y, %H:%M')}")
-
-    if draft["limit"] > 0 and not draft["approval"]:
-        lines.append(f" └ 📋 <b>Invitations:</b> {draft['limit']}")
-
-    app_str = "Yes" if draft["approval"] else "No"
-    lines.append(f" └ 🗂 <b>Approval mode:</b> {app_str}")
-
-    return "\n".join(lines)
+# ----------------- TEMPLATE FORMATTER ----------------- #
+def format_template(text: str, user, chat, cfg: dict):
+    if not text:
+        return ""
+    now = datetime.datetime.now()
+    replacements = {
+        "{ID}": str(user.id),
+        "{NAME}": user.first_name or "",
+        "{SURNAME}": user.last_name or "",
+        "{NAMESURNAME}": f"{user.first_name or ''} {user.last_name or ''}".strip(),
+        "{LANG}": user.language_code or "en",
+        "{DATE}": now.strftime("%d/%m/%Y"),
+        "{TIME}": now.strftime("%H:%M:%S"),
+        "{WEEKDAY}": now.strftime("%A"),
+        "{MENTION}": user.mention_html(),
+        "{USERNAME}": f"@{user.username}" if user.username else user.first_name,
+        "{GROUPNAME}": chat.title if chat else "Group",
+        "{RULES}": cfg.get("rules_text", "")
+    }
+    for k, v in replacements.items():
+        text = text.replace(k, str(v))
+    return text
 
 # ----------------- BUTTONS PARSER ----------------- #
 def parse_custom_buttons(raw_data: str, chat_id: int):
@@ -278,6 +239,127 @@ def parse_custom_buttons(raw_data: str, chat_id: int):
         if row:
             keyboard.append(row)
     return InlineKeyboardMarkup(keyboard) if keyboard else None
+
+# ----------------- WELCOME KEYBOARDS ----------------- #
+def get_welcome_main_keyboard(chat_id: int):
+    cfg = get_config(chat_id)
+    is_active = cfg.get("welcome_active", False)
+    mode = cfg.get("welcome_mode", "always")
+    del_last = cfg.get("welcome_delete_last", False)
+
+    on_style = "success" if is_active else None
+    off_style = "danger" if not is_active else None
+    always_style = "primary" if mode == "always" else None
+    first_style = "primary" if mode == "first" else None
+
+    del_icon = "✔️" if del_last else "✖️"
+
+    keyboard = [
+        [
+            create_btn("✖️ Turn off", callback_data=f"wlc_toggle_off_{chat_id}", style=off_style),
+            create_btn("✔️ Turn on", callback_data=f"wlc_toggle_on_{chat_id}", style=on_style)
+        ],
+        [create_btn("✍️ Customize message", callback_data=f"wlc_custom_{chat_id}")],
+        [
+            create_btn("🔔 Always send", callback_data=f"wlc_mode_always_{chat_id}", style=always_style),
+            create_btn("1️⃣ Send 1st join", callback_data=f"wlc_mode_first_{chat_id}", style=first_style)
+        ],
+        [create_btn(f"♻️ Delete last message {del_icon}", callback_data=f"wlc_tog_dellast_{chat_id}")],
+        [create_btn("⬅️ Back", callback_data=f"cfg_page_1_{chat_id}")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+def get_welcome_customize_keyboard(chat_id: int):
+    cfg = get_config(chat_id)
+    has_text = "✅" if cfg.get("welcome_text") else "❌"
+    has_media = "✅" if cfg.get("welcome_media_id") else "❌"
+    has_buttons = "✅" if cfg.get("welcome_buttons_raw") else "❌"
+
+    keyboard = [
+        [
+            create_btn("📄 Text", callback_data=f"wlc_set_text_{chat_id}"),
+            create_btn("👀 See", callback_data=f"wlc_see_text_{chat_id}")
+        ],
+        [
+            create_btn("📸 Media", callback_data=f"wlc_set_media_{chat_id}"),
+            create_btn("👀 See", callback_data=f"wlc_see_media_{chat_id}")
+        ],
+        [
+            create_btn("🔤 Url Buttons", callback_data=f"wlc_set_buttons_{chat_id}"),
+            create_btn("👀 See", callback_data=f"wlc_see_buttons_{chat_id}")
+        ],
+        [create_btn("👀 Full preview", callback_data=f"wlc_full_preview_{chat_id}")],
+        [create_btn("📁 Select a Topic 🆕", callback_data=f"wlc_topic_info_{chat_id}")],
+        [create_btn("⬅️ Back", callback_data=f"cfg_view_welcome_{chat_id}")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+# ----------------- LINK CREATOR UI ----------------- #
+def get_link_creator_keyboard(chat_id: int, user_id: int):
+    draft = get_link_draft(chat_id, user_id)
+    tab = draft["active_tab"]
+    cur_limit = draft["limit"]
+    cur_until = draft["until_seconds"]
+    cur_approval = draft["approval"]
+
+    keyboard = []
+    if cur_approval:
+        t_unt = "» ⏰ Until «" if tab == "until" else "⏰ Until"
+        keyboard.append([create_btn(t_unt, callback_data=f"lnktab_until_{chat_id}_{user_id}", style="primary" if tab == "until" else None)])
+    else:
+        t_inv = "» 📋 Invitations «" if tab == "invitations" else "📋 Invitations"
+        t_unt = "» ⏰ Until «" if tab == "until" else "⏰ Until"
+        keyboard.append([
+            create_btn(t_inv, callback_data=f"lnktab_invitations_{chat_id}_{user_id}", style="primary" if tab == "invitations" else None),
+            create_btn(t_unt, callback_data=f"lnktab_until_{chat_id}_{user_id}", style="primary" if tab == "until" else None)
+        ])
+
+    if tab == "invitations" and not cur_approval:
+        limits = [(0, "No"), (1, "1"), (2, "2"), (5, "5"), (10, "10"), (20, "20"), (50, "50"), (100, "100")]
+        row1, row2 = [], []
+        for val, lbl in limits[:4]:
+            is_active = (cur_limit == val)
+            label = f"• {lbl} •" if is_active else lbl
+            row1.append(create_btn(label, callback_data=f"lnsetlim_{val}_{chat_id}_{user_id}", style="primary" if is_active else None))
+        for val, lbl in limits[4:]:
+            is_active = (cur_limit == val)
+            label = f"• {lbl} •" if is_active else lbl
+            row2.append(create_btn(label, callback_data=f"lnsetlim_{val}_{chat_id}_{user_id}", style="primary" if is_active else None))
+        keyboard.extend([row1, row2])
+
+    elif tab == "until":
+        times = [(0, "No"), (300, "5m"), (1800, "30m"), (3600, "1h"), (43200, "12h"), (86400, "24h"), (172800, "48h"), (604800, "1w")]
+        row1, row2 = [], []
+        for sec, lbl in times[:4]:
+            is_active = (cur_until == sec)
+            label = f"• {lbl} •" if is_active else lbl
+            row1.append(create_btn(label, callback_data=f"lnsettim_{sec}_{chat_id}_{user_id}", style="primary" if is_active else None))
+        for sec, lbl in times[4:]:
+            is_active = (cur_until == sec)
+            label = f"• {lbl} •" if is_active else lbl
+            row2.append(create_btn(label, callback_data=f"lnsettim_{sec}_{chat_id}_{user_id}", style="primary" if is_active else None))
+        keyboard.extend([row1, row2])
+
+    app_icon = "✔️" if cur_approval else "✖️"
+    keyboard.append([create_btn(f"🗂 Approval mode {app_icon}", callback_data=f"lnktog_app_{chat_id}_{user_id}")])
+    keyboard.append([
+        create_btn("❌ Cancel", callback_data="cfg_close", style="danger"),
+        create_btn("✅ Create link", callback_data=f"lnk_generate_{chat_id}_{user_id}", style="success")
+    ])
+
+    return InlineKeyboardMarkup(keyboard)
+
+def get_link_creator_text(chat_id: int, user_id: int):
+    draft = get_link_draft(chat_id, user_id)
+    lines = ["🔗 <b>Link</b>"]
+    if draft["until_seconds"] > 0:
+        exp_date = datetime.datetime.now() + datetime.timedelta(seconds=draft["until_seconds"])
+        lines.append(f" └ ⏰ <b>Until:</b> {exp_date.strftime('%d %b %Y, %H:%M')}")
+    if draft["limit"] > 0 and not draft["approval"]:
+        lines.append(f" └ 📋 <b>Invitations:</b> {draft['limit']}")
+    app_str = "Yes" if draft["approval"] else "No"
+    lines.append(f" └ 🗂 <b>Approval mode:</b> {app_str}")
+    return "\n".join(lines)
 
 # ----------------- MAIN SETTINGS KEYBOARDS ----------------- #
 def make_penalty_buttons(prefix: str, current_penalty: str, chat_id: int):
@@ -486,7 +568,7 @@ async def execute_punishment(penalty: str, should_delete: bool, update: Update, 
             current_warns = chat_warns.get(user.id, 0) + 1
             chat_warns[user.id] = current_warns
             limit = get_config(chat.id).get("warn_limit", 3)
-            
+
             if current_warns >= limit:
                 chat_warns[user.id] = 0
                 await context.bot.ban_chat_member(chat.id, user.id)
@@ -545,7 +627,7 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
             await query.answer(f"Failed to revoke link: {e}", show_alert=True)
         return
 
-    # Popup Handlers
+    # Popups
     if data.startswith("popalert_"):
         txt = data.split("_", 1)[1]
         try:
@@ -586,12 +668,10 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
             pass
         return
 
-    # Link Creator Tabs and Generation Handlers
+    # Link Creator Tabs & Generation Handlers
     if data.startswith("lnktab_"):
         parts = data.split("_")
-        tab_name = parts[1]
-        cid = int(parts[2])
-        uid = int(parts[3])
+        tab_name, cid, uid = parts[1], int(parts[2]), int(parts[3])
         if user.id != uid:
             await query.answer("Yeh button aapke liye nahi hai.", show_alert=True)
             return
@@ -603,9 +683,7 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
 
     if data.startswith("lnsetlim_"):
         parts = data.split("_")
-        limit_val = int(parts[1])
-        cid = int(parts[2])
-        uid = int(parts[3])
+        limit_val, cid, uid = int(parts[1]), int(parts[2]), int(parts[3])
         if user.id != uid:
             await query.answer("Yeh button aapke liye nahi hai.", show_alert=True)
             return
@@ -617,9 +695,7 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
 
     if data.startswith("lnsettim_"):
         parts = data.split("_")
-        seconds_val = int(parts[1])
-        cid = int(parts[2])
-        uid = int(parts[3])
+        seconds_val, cid, uid = int(parts[1]), int(parts[2]), int(parts[3])
         if user.id != uid:
             await query.answer("Yeh button aapke liye nahi hai.", show_alert=True)
             return
@@ -631,15 +707,13 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
 
     if data.startswith("lnktog_app_"):
         parts = data.split("_")
-        cid = int(parts[2])
-        uid = int(parts[3])
+        cid, uid = int(parts[2]), int(parts[3])
         if user.id != uid:
             await query.answer("Yeh button aapke liye nahi hai.", show_alert=True)
             return
 
         draft = get_link_draft(cid, uid)
         draft["approval"] = not draft["approval"]
-        # If approval is turned ON, reset invitations limit and active tab to until
         if draft["approval"]:
             draft["limit"] = 0
             if draft["active_tab"] == "invitations":
@@ -649,8 +723,7 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
 
     if data.startswith("lnk_generate_"):
         parts = data.split("_")
-        cid = int(parts[2])
-        uid = int(parts[3])
+        cid, uid = int(parts[2]), int(parts[3])
 
         if user.id != uid:
             await query.answer("Sirf command chalane wala admin link generate kar sakta hai.", show_alert=True)
@@ -692,7 +765,6 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
                     reply_markup=InlineKeyboardMarkup(pm_keyboard),
                     parse_mode="HTML"
                 )
-                
                 bot_user = await context.bot.get_me()
                 dm_button = [[create_btn("👉 Go to the chat ↗", url=f"https://t.me/{bot_user.username}")]]
                 await fast_edit(query, "<i>Sent in private chat.</i>", InlineKeyboardMarkup(dm_button))
@@ -710,7 +782,7 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
             await query.answer(f"Failed to create link: {e}", show_alert=True)
         return
 
-    # Regular Settings Admin Check
+    # Regular Admin Check
     if not await is_user_admin(chat.id, user.id, context):
         try:
             await query.answer("Sirf Admins settings badal sakte hain!", show_alert=True)
@@ -720,7 +792,7 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
 
     cfg = get_config(chat.id)
 
-    # Main Settings Pages
+    # 1. Main Pages Navigation
     if data.startswith("cfg_page_"):
         page = data.split("_")[2]
         cid = int(data.split("_")[3])
@@ -732,7 +804,239 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
             await fast_edit(query, text, get_main_settings_keyboard(cid))
         return
 
-    # Regulations Hub
+    # 2. WELCOME SYSTEM HUBS & ACTIONS
+    if data.startswith("cfg_view_welcome_"):
+        cid = int(data.split("_")[3])
+        user_states.pop((cid, user.id), None)
+        status_text = "Active ✅" if cfg.get("welcome_active") else "Off ❌"
+        mode_desc = "Send the welcome message at every join of the users in the group" if cfg.get("welcome_mode") == "always" else "Send the welcome message only at the first join of the user in the group"
+
+        text = (
+            "💬 <b>Welcome Message</b>\n"
+            "From this menu you can set a welcome message that will be sent when someone joins the group.\n\n"
+            f"<b>Status:</b> {status_text}\n"
+            f"<b>Mode:</b> {mode_desc}"
+        )
+        await fast_edit(query, text, get_welcome_main_keyboard(cid))
+        return
+
+    if data.startswith("wlc_toggle_"):
+        action = data.split("_")[2]
+        cid = int(data.split("_")[3])
+        cfg["welcome_active"] = (action == "on")
+
+        status_text = "Active ✅" if cfg.get("welcome_active") else "Off ❌"
+        mode_desc = "Send the welcome message at every join of the users in the group" if cfg.get("welcome_mode") == "always" else "Send the welcome message only at the first join of the user in the group"
+        text = (
+            "💬 <b>Welcome Message</b>\n"
+            "From this menu you can set a welcome message that will be sent when someone joins the group.\n\n"
+            f"<b>Status:</b> {status_text}\n"
+            f"<b>Mode:</b> {mode_desc}"
+        )
+        await fast_edit(query, text, get_welcome_main_keyboard(cid))
+        return
+
+    if data.startswith("wlc_mode_"):
+        mode = data.split("_")[2]
+        cid = int(data.split("_")[3])
+        cfg["welcome_mode"] = mode
+
+        status_text = "Active ✅" if cfg.get("welcome_active") else "Off ❌"
+        mode_desc = "Send the welcome message at every join of the users in the group" if cfg.get("welcome_mode") == "always" else "Send the welcome message only at the first join of the user in the group"
+        text = (
+            "💬 <b>Welcome Message</b>\n"
+            "From this menu you can set a welcome message that will be sent when someone joins the group.\n\n"
+            f"<b>Status:</b> {status_text}\n"
+            f"<b>Mode:</b> {mode_desc}"
+        )
+        await fast_edit(query, text, get_welcome_main_keyboard(cid))
+        return
+
+    if data.startswith("wlc_tog_dellast_"):
+        cid = int(data.split("_")[3])
+        cfg["welcome_delete_last"] = not cfg["welcome_delete_last"]
+
+        status_text = "Active ✅" if cfg.get("welcome_active") else "Off ❌"
+        mode_desc = "Send the welcome message at every join of the users in the group" if cfg.get("welcome_mode") == "always" else "Send the welcome message only at the first join of the user in the group"
+        text = (
+            "💬 <b>Welcome Message</b>\n"
+            "From this menu you can set a welcome message that will be sent when someone joins the group.\n\n"
+            f"<b>Status:</b> {status_text}\n"
+            f"<b>Mode:</b> {mode_desc}"
+        )
+        await fast_edit(query, text, get_welcome_main_keyboard(cid))
+        return
+
+    if data.startswith("wlc_custom_"):
+        cid = int(data.split("_")[2])
+        has_text = "✅" if cfg.get("welcome_text") else "❌"
+        has_media = "✅" if cfg.get("welcome_media_id") else "❌"
+        has_buttons = "✅" if cfg.get("welcome_buttons_raw") else "❌"
+
+        text = (
+            "💬 <b>Welcome Message</b>\n\n"
+            f"📄 Text {has_text}\n"
+            f"📸 Media {has_media}\n"
+            f"🔤 Url Buttons {has_buttons}\n\n"
+            "👉 Use the buttons below to choose what you want to set"
+        )
+        await fast_edit(query, text, get_welcome_customize_keyboard(cid))
+        return
+
+    if data.startswith("wlc_set_text_"):
+        cid = int(data.split("_")[3])
+        user_states[(cid, user.id)] = "awaiting_wlc_text"
+        text = (
+            f"{user.mention_html()}, send now the message you want to set!\n\n"
+            "You can use <b>HTML</b> and:\n"
+            "• {ID} = user ID\n"
+            "• {NAME} = user name\n"
+            "• {SURNAME} = user surname\n"
+            "• {NAMESURNAME} = name and surname\n"
+            "• {LANG} = user language\n"
+            "• {DATE} = current date\n"
+            "• {TIME} = current time\n"
+            "• {WEEKDAY} = week day\n"
+            "• {MENTION} = link to the user profile\n"
+            "• {USERNAME} = username\n"
+            "• {GROUPNAME} = group name\n"
+            "• {RULES} = group regulation"
+        )
+        keyboard = [
+            [create_btn("🚫 Remove message", callback_data=f"wlc_rem_text_{cid}")],
+            [create_btn("❌ Cancel", callback_data=f"wlc_custom_{cid}", style="danger")]
+        ]
+        await fast_edit(query, text, InlineKeyboardMarkup(keyboard))
+        return
+
+    if data.startswith("wlc_rem_text_"):
+        cid = int(data.split("_")[3])
+        cfg["welcome_text"] = None
+        await query.answer("Welcome text removed!")
+        await fast_edit(query, "💬 <b>Welcome Message</b>", get_welcome_customize_keyboard(cid))
+        return
+
+    if data.startswith("wlc_set_media_"):
+        cid = int(data.split("_")[3])
+        user_states[(cid, user.id)] = "awaiting_wlc_media"
+        text = "👉 <b>Send now the media (photos, videos, stickers...) you want to set.</b>\n<i>You can also enter a caption.</i>"
+        keyboard = [
+            [create_btn("🚫 Remove message", callback_data=f"wlc_rem_media_{cid}")],
+            [create_btn("❌ Cancel", callback_data=f"wlc_custom_{cid}", style="danger")]
+        ]
+        await fast_edit(query, text, InlineKeyboardMarkup(keyboard))
+        return
+
+    if data.startswith("wlc_rem_media_"):
+        cid = int(data.split("_")[3])
+        cfg["welcome_media_id"] = None
+        cfg["welcome_media_type"] = None
+        await query.answer("Welcome media removed!")
+        await fast_edit(query, "💬 <b>Welcome Message</b>", get_welcome_customize_keyboard(cid))
+        return
+
+    if data.startswith("wlc_set_buttons_"):
+        cid = int(data.split("_")[3])
+        user_states[(cid, user.id)] = "awaiting_wlc_buttons"
+        text = (
+            "👉 <b>Set the buttons to be placed under the message</b>\n"
+            "Send a message structured as follows:\n\n"
+            "• <b>Single button:</b>\n<code>Button title - t.me/LinkExample</code>\n\n"
+            "• <b>Multiple on single line:</b>\n<code>Title 1 - link1.com && Title 2 - link2.com</code>\n\n"
+            "• <b>Multiple rows:</b>\n<code>Title 1 - link1.com\nTitle 2 - link2.com</code>\n\n"
+            "<b>Special buttons:</b>\n"
+            "• Popup: <code>Button title - popup: Text</code>\n"
+            "• Rules: <code>Button title - rules</code>\n"
+            "• Share: <code>Button title - share: Text to share</code>\n"
+            "• Copy: <code>Button title - copy: Text to copy</code>"
+        )
+        keyboard = [
+            [create_btn("🚫 Remove Keyboard", callback_data=f"wlc_rem_buttons_{cid}")],
+            [create_btn("❌ Cancel", callback_data=f"wlc_custom_{cid}", style="danger")]
+        ]
+        await fast_edit(query, text, InlineKeyboardMarkup(keyboard))
+        return
+
+    if data.startswith("wlc_rem_buttons_"):
+        cid = int(data.split("_")[3])
+        cfg["welcome_buttons_raw"] = None
+        await query.answer("Welcome buttons removed!")
+        await fast_edit(query, "💬 <b>Welcome Message</b>", get_welcome_customize_keyboard(cid))
+        return
+
+    # Welcome Individual & Full Previews
+    if data.startswith("wlc_see_text_"):
+        cid = int(data.split("_")[3])
+        w_text = format_template(cfg.get("welcome_text", "No text set."), user, chat, cfg)
+        await query.answer(f"Text Preview:\n{w_text[:200]}", show_alert=True)
+        return
+
+    if data.startswith("wlc_see_media_"):
+        cid = int(data.split("_")[3])
+        m_id = cfg.get("welcome_media_id")
+        m_type = cfg.get("welcome_media_type")
+        if not m_id:
+            await query.answer("No media configured.", show_alert=True)
+            return
+        try:
+            if m_type == "photo":
+                await chat.send_photo(photo=m_id, caption="📸 Media Preview")
+            elif m_type == "video":
+                await chat.send_video(video=m_id, caption="📸 Media Preview")
+            elif m_type == "sticker":
+                await chat.send_sticker(sticker=m_id)
+            await query.answer("Media preview sent!")
+        except Exception as e:
+            await query.answer(f"Error: {e}", show_alert=True)
+        return
+
+    if data.startswith("wlc_see_buttons_"):
+        cid = int(data.split("_")[3])
+        kb = parse_custom_buttons(cfg.get("welcome_buttons_raw"), cid)
+        if not kb:
+            await query.answer("No buttons configured.", show_alert=True)
+            return
+        await chat.send_message("🔤 <b>Buttons Preview:</b>", reply_markup=kb, parse_mode="HTML")
+        await query.answer("Buttons preview sent!")
+        return
+
+    if data.startswith("wlc_full_preview_"):
+        cid = int(data.split("_")[3])
+        w_text = format_template(cfg.get("welcome_text", ""), user, chat, cfg)
+        w_kb = parse_custom_buttons(cfg.get("welcome_buttons_raw"), cid)
+        m_id = cfg.get("welcome_media_id")
+        m_type = cfg.get("welcome_media_type")
+
+        try:
+            if m_type == "photo":
+                await chat.send_photo(photo=m_id, caption=f"👁️ <b>WELCOME PREVIEW:</b>\n\n{w_text}", reply_markup=w_kb, parse_mode="HTML")
+            elif m_type == "video":
+                await chat.send_video(video=m_id, caption=f"👁️ <b>WELCOME PREVIEW:</b>\n\n{w_text}", reply_markup=w_kb, parse_mode="HTML")
+            elif m_type == "sticker":
+                await chat.send_sticker(sticker=m_id)
+                if w_text:
+                    await chat.send_message(f"👁️ <b>WELCOME PREVIEW:</b>\n\n{w_text}", reply_markup=w_kb, parse_mode="HTML")
+            else:
+                await chat.send_message(f"👁️ <b>WELCOME PREVIEW:</b>\n\n{w_text}", reply_markup=w_kb, parse_mode="HTML")
+            await query.answer("Full preview sent!")
+        except Exception as e:
+            await query.answer(f"Full preview error: {e}", show_alert=True)
+        return
+
+    if data.startswith("wlc_topic_info_"):
+        cid = int(data.split("_")[3])
+        text = (
+            "📁 <b>Select a Topic</b>\n"
+            "If you use \"Topics\" in your group, you can decide which topic the bot should send this type of message in.\n\n"
+            "To do so, go to the chosen Topic and send this command:\n"
+            "<code>/topic_welcome</code>\n\n"
+            "<i>If you don't use \"Topics\", ignore this setting.</i>"
+        )
+        keyboard = [[create_btn("⬅️ Back", callback_data=f"wlc_custom_{cid}")]]
+        await fast_edit(query, text, InlineKeyboardMarkup(keyboard))
+        return
+
+    # 3. REGULATIONS HUB
     if data.startswith("cfg_view_reg_"):
         cid = int(data.split("_")[3])
         user_states.pop((cid, user.id), None)
@@ -834,7 +1138,7 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
             await query.answer(f"Preview error: {e}", show_alert=True)
         return
 
-    # Permissions Grid
+    # 4. COMMANDS PERMISSIONS MATRIX
     if data.startswith("reg_cmd_perms_"):
         cid = int(data.split("_")[3])
         text = (
@@ -854,9 +1158,7 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
 
     if data.startswith("permset_"):
         parts = data.split("_")
-        cmd_key = parts[1]
-        mode_key = parts[2]
-        cid = int(parts[3])
+        cmd_key, mode_key, cid = parts[1], parts[2], int(parts[3])
         cfg[f"perm_{cmd_key}"] = mode_key
         text = (
             "🕹 <b>Commands Permissions</b>\n"
@@ -873,7 +1175,7 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
         await fast_edit(query, text, get_cmd_permissions_keyboard(cid))
         return
 
-    # Anti-Spam Hub
+    # 5. ANTI-SPAM HUB
     if data.startswith("aspam_main_"):
         cid = int(data.split("_")[2])
         text = "✉️ <b>Anti-Spam</b>\nIn this menu you can decide whether to protect your groups from unnecessary links, forwards, and quotes."
@@ -1023,7 +1325,7 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
         await fast_edit(query, text, get_main_settings_keyboard(cid))
         return
 
-# ----------------- TEXT CAPTURE ----------------- #
+# ----------------- TEXT & MEDIA CAPTURE ----------------- #
 async def interactive_state_processor(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     if not update.message or not update.message.from_user:
         return False
@@ -1040,6 +1342,7 @@ async def interactive_state_processor(update: Update, context: ContextTypes.DEFA
     msg = update.message
     text = msg.text or msg.caption or ""
 
+    # Regulations States
     if state == "awaiting_reg_text":
         cfg["rules_text"] = text
         try:
@@ -1085,6 +1388,53 @@ async def interactive_state_processor(update: Update, context: ContextTypes.DEFA
         await msg.reply_text("✅ <b>Interactive buttons saved!</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
         return True
 
+    # Welcome States
+    elif state == "awaiting_wlc_text":
+        cfg["welcome_text"] = text
+        try:
+            await msg.delete()
+        except Exception:
+            pass
+        kb = [[create_btn("⬅️ Back to Welcome Customize", callback_data=f"wlc_custom_{chat_id}")]]
+        await msg.reply_text("✅ <b>Welcome text message updated successfully!</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
+        return True
+
+    elif state == "awaiting_wlc_media":
+        if msg.photo:
+            cfg["welcome_media_id"] = msg.photo[-1].file_id
+            cfg["welcome_media_type"] = "photo"
+        elif msg.video:
+            cfg["welcome_media_id"] = msg.video.file_id
+            cfg["welcome_media_type"] = "video"
+        elif msg.sticker:
+            cfg["welcome_media_id"] = msg.sticker.file_id
+            cfg["welcome_media_type"] = "sticker"
+        else:
+            await msg.reply_text("❌ Kripya photo, video ya sticker send karein.")
+            return True
+
+        if msg.caption:
+            cfg["welcome_text"] = msg.caption
+
+        try:
+            await msg.delete()
+        except Exception:
+            pass
+        kb = [[create_btn("⬅️ Back to Welcome Customize", callback_data=f"wlc_custom_{chat_id}")]]
+        await msg.reply_text(f"✅ <b>Welcome media ({cfg['welcome_media_type']}) saved!</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
+        return True
+
+    elif state == "awaiting_wlc_buttons":
+        cfg["welcome_buttons_raw"] = text
+        try:
+            await msg.delete()
+        except Exception:
+            pass
+        kb = [[create_btn("⬅️ Back to Welcome Customize", callback_data=f"wlc_custom_{chat_id}")]]
+        await msg.reply_text("✅ <b>Welcome buttons saved!</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
+        return True
+
+    # Whitelist States
     elif state == "awaiting_whitelist_add":
         lines = [line.strip().lower() for line in text.splitlines() if line.strip()]
         wl = get_whitelist(chat_id)
@@ -1128,6 +1478,29 @@ async def interactive_state_processor(update: Update, context: ContextTypes.DEFA
 
     return False
 
+# ----------------- TOPIC BINDING COMMAND ----------------- #
+async def topic_welcome_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat = update.effective_chat
+    user = update.effective_user
+    msg = update.message
+
+    if chat.type == "private":
+        await msg.reply_text("Yeh command group topics ke andar run karein.")
+        return
+
+    if not await is_user_admin(chat.id, user.id, context):
+        await msg.reply_text("❌ Sirf admins topic bind kar sakte hain.")
+        return
+
+    thread_id = msg.message_thread_id
+    cfg = get_config(chat.id)
+    cfg["welcome_topic_id"] = thread_id
+
+    if thread_id:
+        await msg.reply_text(f"✅ Welcome messages will now be sent to this topic (Thread ID: <code>{thread_id}</code>).", parse_mode="HTML")
+    else:
+        await msg.reply_text("✅ Welcome messages bound to Main Chat.", parse_mode="HTML")
+
 # ----------------- PUBLIC COMMANDS ----------------- #
 async def link_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
@@ -1141,7 +1514,6 @@ async def link_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Aapke paas group me 'Invite Users via Link' permission nahi hai.")
         return
 
-    # Clean default draft initialization
     link_drafts[(chat.id, user.id)] = {
         "active_tab": None,
         "limit": 0,
@@ -1194,6 +1566,58 @@ async def me_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     warns = user_warns.get(chat.id, {}).get(user.id, 0)
     info = f"👤 <b>Your Info:</b>\n• Name: {user.mention_html()}\n• ID: <code>{user.id}</code>\n• Warns: <b>{warns}</b>"
     await update.message.reply_text(info, parse_mode="HTML")
+
+# ----------------- NEW MEMBER JOIN & WELCOME DISPATCHER ----------------- #
+async def new_member_welcome_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat = update.effective_chat
+    cfg = get_config(chat.id)
+
+    if not cfg.get("welcome_active"):
+        return
+
+    for member in update.message.new_chat_members:
+        if member.id == context.bot.id:
+            continue
+
+        # Check 1st Join vs Always send
+        joined_history = joined_members_history.setdefault(chat.id, set())
+        if cfg.get("welcome_mode") == "first" and member.id in joined_history:
+            continue
+        joined_history.add(member.id)
+
+        # Delete previous welcome if enabled
+        if cfg.get("welcome_delete_last") and chat.id in last_welcome_messages:
+            try:
+                await context.bot.delete_message(chat_id=chat.id, message_id=last_welcome_messages[chat.id])
+            except Exception:
+                pass
+
+        # Prepare message & buttons
+        w_text = format_template(cfg.get("welcome_text", ""), member, chat, cfg)
+        w_kb = parse_custom_buttons(cfg.get("welcome_buttons_raw"), chat.id)
+        m_id = cfg.get("welcome_media_id")
+        m_type = cfg.get("welcome_media_type")
+        thread_id = cfg.get("welcome_topic_id")
+
+        sent_msg = None
+        try:
+            if m_type == "photo":
+                sent_msg = await chat.send_photo(photo=m_id, caption=w_text, reply_markup=w_kb, message_thread_id=thread_id, parse_mode="HTML")
+            elif m_type == "video":
+                sent_msg = await chat.send_video(video=m_id, caption=w_text, reply_markup=w_kb, message_thread_id=thread_id, parse_mode="HTML")
+            elif m_type == "sticker":
+                await chat.send_sticker(sticker=m_id, message_thread_id=thread_id)
+                if w_text:
+                    sent_msg = await chat.send_message(w_text, reply_markup=w_kb, message_thread_id=thread_id, parse_mode="HTML")
+            else:
+                if w_text:
+                    sent_msg = await chat.send_message(w_text, reply_markup=w_kb, message_thread_id=thread_id, parse_mode="HTML")
+
+            if sent_msg and cfg.get("welcome_delete_last"):
+                last_welcome_messages[chat.id] = sent_msg.message_id
+
+        except Exception as e:
+            logger.error(f"Error sending welcome message: {e}")
 
 # ----------------- SECURITY & AUTO MODERATION ----------------- #
 async def security_moderator(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1353,15 +1777,17 @@ def main():
     app.add_handler(CommandHandler("rules", rules_command))
     app.add_handler(CommandHandler("staff", staff_command))
     app.add_handler(CommandHandler("me", me_command))
+    app.add_handler(CommandHandler("topic_welcome", topic_welcome_command))
 
     # Single Router
     app.add_handler(CallbackQueryHandler(unified_callback_handler))
 
-    # Handlers
+    # Event Handlers
+    app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, new_member_welcome_handler))
     app.add_handler(MessageHandler(filters.Regex(r"(?i)^pip3?\s+install\s+"), auto_pip_installer))
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, security_moderator))
 
-    print("🛡 Group Help Security Bot running with exact Approval Mode toggle & Until expansion...")
+    print("🛡 Group Help Security Bot running smoothly with full Welcome customization & real-time previews...")
     app.run_polling()
 
 if __name__ == "__main__":
