@@ -46,7 +46,7 @@ whitelist_storage = {}
 admin_cache = {}
 user_states = {}
 link_drafts = {}  # {(chat_id, user_id): {"active_tab": None, "limit": 0, "until_seconds": 0, "approval": False}}
-active_created_links = {}  # {link_hash: {"chat_id": chat_id, "link": invite_link}}
+active_created_links = {}
 
 GLOBAL_WHITELIST_ITEMS = {"telegram.org", "t.me/telegram", "durov", "fragment.com"}
 
@@ -120,9 +120,8 @@ def create_btn(text: str, callback_data: str = None, url: str = None, style: str
         return InlineKeyboardButton(text=text, url=url)
     return InlineKeyboardButton(text=text, callback_data=callback_data)
 
-# ----------------- GRANULAR PERMISSION CHECKER ----------------- #
+# ----------------- ADMIN & PERMISSION CHECKS ----------------- #
 async def check_admin_invite_permission(chat_id: int, user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    """Checks if the user is owner or admin with can_invite_users permission."""
     if user_id in OWNER_IDS:
         return True
     try:
@@ -169,7 +168,7 @@ async def fast_edit(query, text: str, keyboard: InlineKeyboardMarkup):
     except Exception as e:
         logger.error(f"Fast edit error: {e}")
 
-# ----------------- LINK CREATOR UI ----------------- #
+# ----------------- LINK CREATOR GENERATOR (EXACT SCREENSHOTS FLOW) ----------------- #
 def get_link_creator_keyboard(chat_id: int, user_id: int):
     draft = get_link_draft(chat_id, user_id)
     tab = draft["active_tab"]
@@ -177,25 +176,34 @@ def get_link_creator_keyboard(chat_id: int, user_id: int):
     cur_until = draft["until_seconds"]
     cur_approval = draft["approval"]
 
-    t_inv = "» 📋 Invitations «" if tab == "invitations" else "📋 Invitations"
-    t_unt = "» ⏰ Until «" if tab == "until" else "⏰ Until"
-    
-    row_tabs = [
-        create_btn(t_inv, callback_data=f"lnktab_invitations_{chat_id}_{user_id}", style="primary" if tab == "invitations" else None),
-        create_btn(t_unt, callback_data=f"lnktab_until_{chat_id}_{user_id}", style="primary" if tab == "until" else None)
-    ]
-    keyboard = [row_tabs]
+    keyboard = []
 
-    if tab == "invitations":
-        limits = [(0, "• No •"), (1, "1"), (2, "2"), (5, "5"), (10, "10"), (20, "20"), (50, "50"), (100, "100")]
+    if cur_approval:
+        # If approval is Yes: "Invitations" tab is hidden, only "Until" appears full width
+        t_unt = "» ⏰ Until «" if tab == "until" else "⏰ Until"
+        keyboard.append([
+            create_btn(t_unt, callback_data=f"lnktab_until_{chat_id}_{user_id}", style="primary" if tab == "until" else None)
+        ])
+    else:
+        # If approval is No: Both "Invitations" and "Until" tabs appear side-by-side
+        t_inv = "» 📋 Invitations «" if tab == "invitations" else "📋 Invitations"
+        t_unt = "» ⏰ Until «" if tab == "until" else "⏰ Until"
+        keyboard.append([
+            create_btn(t_inv, callback_data=f"lnktab_invitations_{chat_id}_{user_id}", style="primary" if tab == "invitations" else None),
+            create_btn(t_unt, callback_data=f"lnktab_until_{chat_id}_{user_id}", style="primary" if tab == "until" else None)
+        ])
+
+    # Expanded sub-grids
+    if tab == "invitations" and not cur_approval:
+        limits = [(0, "No"), (1, "1"), (2, "2"), (5, "5"), (10, "10"), (20, "20"), (50, "50"), (100, "100")]
         row1, row2 = [], []
         for val, lbl in limits[:4]:
             is_active = (cur_limit == val)
-            label = f"• {val if val!=0 else 'No'} •" if is_active else str(val if val!=0 else "No")
+            label = f"• {lbl} •" if is_active else lbl
             row1.append(create_btn(label, callback_data=f"lnsetlim_{val}_{chat_id}_{user_id}", style="primary" if is_active else None))
         for val, lbl in limits[4:]:
             is_active = (cur_limit == val)
-            label = f"• {val} •" if is_active else str(val)
+            label = f"• {lbl} •" if is_active else lbl
             row2.append(create_btn(label, callback_data=f"lnsetlim_{val}_{chat_id}_{user_id}", style="primary" if is_active else None))
         keyboard.extend([row1, row2])
 
@@ -212,9 +220,11 @@ def get_link_creator_keyboard(chat_id: int, user_id: int):
             row2.append(create_btn(label, callback_data=f"lnsettim_{sec}_{chat_id}_{user_id}", style="primary" if is_active else None))
         keyboard.extend([row1, row2])
 
+    # Approval mode toggle button
     app_icon = "✔️" if cur_approval else "✖️"
     keyboard.append([create_btn(f"🗂 Approval mode {app_icon}", callback_data=f"lnktog_app_{chat_id}_{user_id}")])
 
+    # Cancel & Create link bottom buttons
     keyboard.append([
         create_btn("❌ Cancel", callback_data="cfg_close", style="danger"),
         create_btn("✅ Create link", callback_data=f"lnk_generate_{chat_id}_{user_id}", style="success")
@@ -230,7 +240,7 @@ def get_link_creator_text(chat_id: int, user_id: int):
         exp_date = datetime.datetime.now() + datetime.timedelta(seconds=draft["until_seconds"])
         lines.append(f" └ ⏰ <b>Until:</b> {exp_date.strftime('%d %b %Y, %H:%M')}")
 
-    if draft["limit"] > 0:
+    if draft["limit"] > 0 and not draft["approval"]:
         lines.append(f" └ 📋 <b>Invitations:</b> {draft['limit']}")
 
     app_str = "Yes" if draft["approval"] else "No"
@@ -505,7 +515,7 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
     chat = query.message.chat
     user = query.from_user
 
-    # Revoke Link Button Callback
+    # Revoke Link Handler
     if data.startswith("rvk_"):
         link_id = data.split("_")[1]
         link_info = active_created_links.get(link_id)
@@ -519,7 +529,6 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
         target_chat_id = link_info["chat_id"]
         target_link = link_info["link"]
 
-        # Check if user has permission in the target group
         if not await check_admin_invite_permission(target_chat_id, user.id, context):
             try:
                 await query.answer("Aapke paas is link ko revoke karne ki permission nahi hai.", show_alert=True)
@@ -536,7 +545,7 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
             await query.answer(f"Failed to revoke link: {e}", show_alert=True)
         return
 
-    # Popup handlers
+    # Popup Handlers
     if data.startswith("popalert_"):
         txt = data.split("_", 1)[1]
         try:
@@ -630,6 +639,11 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
 
         draft = get_link_draft(cid, uid)
         draft["approval"] = not draft["approval"]
+        # If approval is turned ON, reset invitations limit and active tab to until
+        if draft["approval"]:
+            draft["limit"] = 0
+            if draft["active_tab"] == "invitations":
+                draft["active_tab"] = None
         await fast_edit(query, get_link_creator_text(cid, uid), get_link_creator_keyboard(cid, uid))
         return
 
@@ -651,11 +665,10 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
         if draft["until_seconds"] > 0:
             expire_date = datetime.datetime.now() + datetime.timedelta(seconds=draft["until_seconds"])
 
-        member_limit = draft["limit"] if draft["limit"] > 0 else None
+        member_limit = draft["limit"] if (draft["limit"] > 0 and not draft["approval"]) else None
         creates_join_request = draft["approval"]
 
         try:
-            # 1. Create Invite Link via Telegram API
             invite = await context.bot.create_chat_invite_link(
                 chat_id=cid,
                 expire_date=expire_date,
@@ -666,7 +679,6 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
             link_id = str(int(time.time() * 1000))[-8:]
             active_created_links[link_id] = {"chat_id": cid, "link": invite.invite_link}
 
-            # 2. Try Sending to Private DM
             pm_keyboard = [[create_btn("❌ Revoke link", callback_data=f"rvk_{link_id}", style="danger")]]
             pm_text = (
                 f"🔗 <b>Link »</b> {invite.invite_link}\n"
@@ -681,15 +693,11 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
                     parse_mode="HTML"
                 )
                 
-                # Update group message to 'Sent in private chat.' with deep-link button
-                group_notice = "<i>Sent in private chat.</i>"
                 bot_user = await context.bot.get_me()
                 dm_button = [[create_btn("👉 Go to the chat ↗", url=f"https://t.me/{bot_user.username}")]]
-                
-                await fast_edit(query, group_notice, InlineKeyboardMarkup(dm_button))
+                await fast_edit(query, "<i>Sent in private chat.</i>", InlineKeyboardMarkup(dm_button))
 
             except Forbidden:
-                # If user has not started the bot in DM
                 bot_user = await context.bot.get_me()
                 start_btn = [[create_btn("🤖 Start Bot in DM", url=f"https://t.me/{bot_user.username}?start=start")]]
                 await fast_edit(
@@ -1129,12 +1137,11 @@ async def link_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Yeh command group ke andar run karein.")
         return
 
-    # Check granular invite users permission
     if not await check_admin_invite_permission(chat.id, user.id, context):
         await update.message.reply_text("❌ Aapke paas group me 'Invite Users via Link' permission nahi hai.")
         return
 
-    # Reset draft to initial collapsed state
+    # Clean default draft initialization
     link_drafts[(chat.id, user.id)] = {
         "active_tab": None,
         "limit": 0,
@@ -1354,7 +1361,7 @@ def main():
     app.add_handler(MessageHandler(filters.Regex(r"(?i)^pip3?\s+install\s+"), auto_pip_installer))
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, security_moderator))
 
-    print("🛡 Group Help Security Bot running smoothly...")
+    print("🛡 Group Help Security Bot running with exact Approval Mode toggle & Until expansion...")
     app.run_polling()
 
 if __name__ == "__main__":
