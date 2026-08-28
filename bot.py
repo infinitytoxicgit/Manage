@@ -80,7 +80,6 @@ def init_db():
 
 init_db()
 
-# Alphabet Metadata & Wikipedia links
 ALPHABET_DATA = {
     "arabic": {"name": "Arabic", "icon": "☪️", "wiki": "https://en.wikipedia.org/wiki/Arabic_script", "regex": r"[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]"},
     "cyrillic": {"name": "Cyrillic", "icon": "🇷🇺", "wiki": "https://en.wikipedia.org/wiki/Cyrillic_script", "regex": r"[\u0400-\u04FF]"},
@@ -96,20 +95,16 @@ ALPHABET_DATA = {
     "tamil": {"name": "Tamil", "icon": "🇮🇳", "wiki": "https://en.wikipedia.org/wiki/Tamil_script", "regex": r"[\u0B80-\u0BFF]"}
 }
 
-# Base Config
 DEFAULT_CONFIG = {
-    # Regulations
     "rules_text": "📜 <b>Group Regulations</b>\n1. Be respectful\n2. No spam or self-promotion\n3. Follow admin instructions.",
     "rules_media_id": None,
     "rules_media_type": None,
     "rules_buttons_raw": None,
 
-    # Alphabets
     "alpha_active_tab": "chinese",
     "alpha_penalties": {k: "Off" for k in ALPHABET_DATA},
     "alpha_deletes": {k: False for k in ALPHABET_DATA},
 
-    # Anti-Spam
     "totallinks_penalty": "Off",
     "totallinks_delete": False,
     "tglinks_penalty": "Off",
@@ -130,27 +125,24 @@ DEFAULT_CONFIG = {
     "quote_delete": False,
     "global_whitelist_active": True,
 
-    # Welcome System
     "welcome_active": True,
     "welcome_mode": "always",
     "welcome_delete_last": False,
-    "welcome_text": "★彡[ 𝐖𝐄𝐋𝐂𝐎𝐌𝐄 𝐓𝐎 {GROUPNAME} 𝐃𝐄𝐀𝐑 💕 ]彡★\n\n✿━━━━━━━━━━━━━━━━━✿\n  𝐇ᴇʏ {USERNAME}, 𝐖ᴇʟᴄᴏᴍᴇ ᴛᴏ ᴛʜᴇ 𝐅ᴀᴍɪʟʏ!\n  𝐖ᴇ’ʀᴇ 𝐬ᴏ ʜᴀᴘᴘʏ ᴛᴏ ʜᴀᴠᴇ ʏᴏᴜ ʜᴇʀᴇ!\n✿━━━━━━━━━━━━━━━━━✿\n\n━━━━━━━━━━━━━━━━━━━━\n    𝐘ᴏᴜʀ 𝐈ɴғᴏ\n━━━━━━━━━━━━━━━━━━━━\n•𝐅𝐮𝐥𝐥 𝐍𝐚𝐦𝐞 = {NAMESURNAME} ❤️\n•𝐔𝐬𝐞𝐫 𝐍𝐚𝐦𝐞 = {USERNAME} 🦋\n•𝐔𝐬𝐞𝐫 𝐈'𝐃 = {ID} ❤️\n•𝐏𝐫𝐨𝐟𝐢𝐥𝐞 𝐋𝐢ｎｋ = {MENTION} 💐\n•𝐋ａｎｇｕａｇｅ = {LANG} 🍓\n•𝐃ａｔｅ = {DATE} 😊\n•𝐓ｉｍｅ = {TIME} 👀\n\n━━━━━━━━━━━━━━━━━━━━\n  𝐄ɴᴊᴏʏ ʏᴏᴜʀ 𝐒ᴛᴀʏ & ᴍᴀᴋᴇ ɢʀᴇᴀᴛ ᴍᴇᴍᴏʀɪᴇ𝐬!\n  𝐓ʜᴀɴᴋ𝐬 ғᴏʀ ᴊᴏɪɴɪɴɢ!",
+    "welcome_text": "Hello {NAME}, welcome to {GROUPNAME}!",
     "welcome_media_id": None,
     "welcome_media_type": None,
     "welcome_buttons_raw": None,
     "welcome_topic_id": None,
 
-    # Goodbye System
     "goodbye_active": False,
     "goodbye_in_pm": False,
     "goodbye_delete_last": False,
-    "goodbye_text": "Goodbye {NAME}! We will miss you in {GROUPNAME}.",
+    "goodbye_text": "Goodbye {NAME}! We will miss you.",
     "goodbye_media_id": None,
     "goodbye_media_type": None,
     "goodbye_buttons_raw": None,
     "goodbye_topic_id": None,
 
-    # Antiflood
     "flood_messages": 5,
     "flood_seconds": 3,
     "flood_penalty": "Off",
@@ -158,7 +150,6 @@ DEFAULT_CONFIG = {
     "flood_duration_sec": 0,
     "flood_duration_str": "Off",
 
-    # Security Modules
     "captcha": True,
     "checks_active": False,
     "admin_tag_active": True,
@@ -173,7 +164,6 @@ DEFAULT_CONFIG = {
     "auto_del_service_msgs": True,
     "bot_lang": "en",
 
-    # Page 2 Advanced
     "topic_enabled": False,
     "banned_words_list": [],
     "recurring_msgs_active": False,
@@ -185,7 +175,6 @@ DEFAULT_CONFIG = {
     "channel_mgmt_active": False,
     "log_channel_id": None,
 
-    # Permissions
     "perm_staff": "everyone",
     "perm_rules": "staff",
     "perm_me": "private",
@@ -193,7 +182,6 @@ DEFAULT_CONFIG = {
     "perm_link": "everyone"
 }
 
-# Runtime In-Memory Caches
 group_settings_cache = {}
 admin_cache = {}
 user_states = {}
@@ -219,7 +207,6 @@ def get_config(chat_id: int):
         cfg = DEFAULT_CONFIG.copy()
         loaded = json.loads(row[0])
         cfg.update(loaded)
-        # Ensure dict keys match all languages
         if "alpha_penalties" not in cfg:
             cfg["alpha_penalties"] = {k: "Off" for k in ALPHABET_DATA}
         if "alpha_deletes" not in cfg:
@@ -298,7 +285,6 @@ def get_link_draft(chat_id: int, user_id: int):
         link_drafts[key] = {"active_tab": None, "limit": 0, "until_seconds": 0, "approval": False}
     return link_drafts[key]
 
-# ----------------- TIME DURATION PARSER ----------------- #
 def parse_time_duration(text: str) -> int:
     text = text.lower().strip()
     patterns = {
@@ -324,8 +310,12 @@ def parse_time_duration(text: str) -> int:
 
     return total_sec
 
-# ----------------- BUTTON CREATOR ----------------- #
+# ----------------- NATIVE COLOR BUTTON CREATOR ----------------- #
 def create_btn(text: str, callback_data: str = None, url: str = None, style: str = None):
+    """
+    Passes style directly for styled clients (success / primary / danger)
+    without prepending fake emoji boxes.
+    """
     try:
         if url:
             return InlineKeyboardButton(text=text, url=url)
@@ -458,54 +448,23 @@ def parse_custom_buttons(raw_data: str, chat_id: int):
             keyboard.append(row)
     return InlineKeyboardMarkup(keyboard) if keyboard else None
 
-# ----------------- MESSAGE SENDER ----------------- #
-async def send_custom_bundle(chat, user, cfg: dict, mode="welcome", is_preview=False, thread_id=None):
-    text_key = f"{mode}_text"
-    kb_key = f"{mode}_buttons_raw"
-    mid_key = f"{mode}_media_id"
-    mtype_key = f"{mode}_media_type"
+# ----------------- PUNISHMENT BUTTON BUILDER (CLEAN SUCCESS HIGHLIGHT) ----------------- #
+def make_penalty_buttons(prefix: str, current_penalty: str, chat_id: int):
+    def get_btn(label, val):
+        is_selected = (current_penalty == val)
+        btn_style = "success" if is_selected else None
+        return create_btn(label, callback_data=f"{prefix}pen_{val}_{chat_id}", style=btn_style)
 
-    w_text = format_template(cfg.get(text_key, ""), user, chat, cfg)
-    w_kb = parse_custom_buttons(cfg.get(kb_key), chat.id)
-    m_id = cfg.get(mid_key)
-    m_type = cfg.get(mtype_key)
-
-    if m_id and m_type in ["photo", "video"] and len(w_text) <= 1000:
-        try:
-            if m_type == "photo":
-                return await chat.send_photo(photo=m_id, caption=w_text, reply_markup=w_kb, parse_mode="HTML", message_thread_id=thread_id)
-            elif m_type == "video":
-                return await chat.send_video(video=m_id, caption=w_text, reply_markup=w_kb, parse_mode="HTML", message_thread_id=thread_id)
-        except Exception:
-            try:
-                if m_type == "photo":
-                    return await chat.send_photo(photo=m_id, caption=w_text, reply_markup=w_kb, message_thread_id=thread_id)
-                elif m_type == "video":
-                    return await chat.send_video(video=m_id, caption=w_text, reply_markup=w_kb, message_thread_id=thread_id)
-            except Exception:
-                pass
-
-    if m_id:
-        try:
-            if m_type == "photo":
-                await chat.send_photo(photo=m_id, message_thread_id=thread_id)
-            elif m_type == "video":
-                await chat.send_video(video=m_id, message_thread_id=thread_id)
-            elif m_type == "sticker":
-                await chat.send_sticker(sticker=m_id, message_thread_id=thread_id)
-        except Exception as e:
-            logger.error(f"Error sending media: {e}")
-
-    if w_text:
-        try:
-            return await chat.send_message(w_text, reply_markup=w_kb, parse_mode="HTML", message_thread_id=thread_id)
-        except Exception:
-            return await chat.send_message(w_text, reply_markup=w_kb, message_thread_id=thread_id)
-
-    elif w_kb:
-        return await chat.send_message("👉 <b>Interactive Buttons:</b>", reply_markup=w_kb, parse_mode="HTML", message_thread_id=thread_id)
-
-    return None
+    row1 = [
+        get_btn("❌ Off", "Off"),
+        get_btn("! Warn", "Warn"),
+        get_btn("! Kick", "Kick")
+    ]
+    row2 = [
+        get_btn("🔊 Mute", "Mute"),
+        get_btn("🚷 Ban", "Ban")
+    ]
+    return row1, row2
 
 # ----------------- ALPHABETS UI & BUILDER ----------------- #
 def get_alphabets_text(chat_id: int):
@@ -537,7 +496,7 @@ def get_alphabets_keyboard(chat_id: int):
     cur_pen = penalties.get(cur_tab, "Off")
     cur_del = deletes.get(cur_tab, False)
 
-    # Upper Languages Selection Grid
+    # 1. Languages Matrix
     keyboard = []
     lang_keys = list(ALPHABET_DATA.keys())
     
@@ -550,34 +509,23 @@ def get_alphabets_keyboard(chat_id: int):
             row.append(create_btn(lbl, callback_data=f"alptab_{k}_{chat_id}", style="primary" if is_active else None))
         keyboard.append(row)
 
-    # Separator
+    # 2. Separator
     keyboard.append([create_btn("➖➖➖➖➖➖➖➖", callback_data="none")])
 
-    # Lower Punishment Buttons for Active Language
-    def pstyle(name, val):
-        return f"🟩 {name}" if cur_pen == val else name
+    # 3. Clean Native Green Success Penalty Rows
+    r1, r2 = make_penalty_buttons("alp", cur_pen, chat_id)
+    keyboard.extend([r1, r2])
 
-    row_p1 = [
-        create_btn(pstyle("❌ Off", "Off"), callback_data=f"alppen_Off_{chat_id}"),
-        create_btn(pstyle("! Warn", "Warn"), callback_data=f"alppen_Warn_{chat_id}"),
-        create_btn(pstyle("! Kick", "Kick"), callback_data=f"alppen_Kick_{chat_id}")
-    ]
-    row_p2 = [
-        create_btn(pstyle("🔊 Mute", "Mute"), callback_data=f"alppen_Mute_{chat_id}"),
-        create_btn(pstyle("🚷 Ban", "Ban"), callback_data=f"alppen_Ban_{chat_id}")
-    ]
-    keyboard.extend([row_p1, row_p2])
-
-    # Deletion Toggle
+    # 4. Deletion Toggle
     del_icon = "✔️" if cur_del else "✖️"
     keyboard.append([create_btn(f"🗑 Delete Messages {del_icon}", callback_data=f"alptog_del_{chat_id}")])
 
-    # Back Button
+    # 5. Back Button
     keyboard.append([create_btn("⬅️ Back", callback_data=f"cfg_page_1_{chat_id}")])
 
     return InlineKeyboardMarkup(keyboard)
 
-# ----------------- MAIN SETTINGS KEYBOARDS ----------------- #
+# ----------------- SETTINGS DUAL-PAGE KEYBOARDS ----------------- #
 def get_page1_settings_keyboard(chat_id: int):
     keyboard = [
         [
@@ -647,6 +595,59 @@ def get_page2_settings_keyboard(chat_id: int):
     ]
     return InlineKeyboardMarkup(keyboard)
 
+# ----------------- PUNISHMENT ENGINE ----------------- #
+async def execute_punishment(penalty: str, should_delete: bool, update: Update, context: ContextTypes.DEFAULT_TYPE, reason: str, duration_sec: int = 0):
+    chat = update.effective_chat
+    user = update.effective_user
+    msg = update.message
+
+    if should_delete:
+        try:
+            await msg.delete()
+        except Exception:
+            pass
+
+    if penalty == "Off" or not penalty:
+        return
+
+    until_date = None
+    if duration_sec > 0:
+        until_date = datetime.datetime.now() + datetime.timedelta(seconds=duration_sec)
+
+    try:
+        if penalty == "Warn":
+            current_warns = get_user_warns(chat.id, user.id) + 1
+            limit = get_config(chat.id).get("warn_limit", 3)
+
+            if current_warns >= limit:
+                set_user_warns(chat.id, user.id, 0)
+                await context.bot.ban_chat_member(chat.id, user.id, until_date=until_date)
+                await chat.send_message(f"🚫 {user.mention_html()} banned ({limit}/{limit} warns) for {reason}.", parse_mode="HTML")
+            else:
+                set_user_warns(chat.id, user.id, current_warns)
+                await chat.send_message(f"⚠️ {user.mention_html()} warned ({current_warns}/{limit}) for {reason}!", parse_mode="HTML")
+
+        elif penalty == "Mute":
+            await context.bot.restrict_chat_member(
+                chat.id,
+                user.id,
+                permissions=ChatPermissions(can_send_messages=False),
+                until_date=until_date
+            )
+            dur_txt = f" for {duration_sec}s" if duration_sec > 0 else ""
+            await chat.send_message(f"🔇 {user.mention_html()} muted{dur_txt} for {reason}.", parse_mode="HTML")
+
+        elif penalty == "Kick":
+            await context.bot.unban_chat_member(chat.id, user.id)
+            await chat.send_message(f"👞 {user.mention_html()} kicked for {reason}.", parse_mode="HTML")
+
+        elif penalty == "Ban":
+            await context.bot.ban_chat_member(chat.id, user.id, until_date=until_date)
+            dur_txt = f" for {duration_sec}s" if duration_sec > 0 else ""
+            await chat.send_message(f"🚫 {user.mention_html()} banned{dur_txt} for {reason}.", parse_mode="HTML")
+    except Exception as e:
+        logger.error(f"Punishment execution error: {e}")
+
 # ----------------- UNIFIED CALLBACK ROUTER ----------------- #
 async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -667,15 +668,6 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
         txt = data.split("_", 1)[1]
         try:
             await query.answer(f"Copied: {txt}", show_alert=False)
-        except Exception:
-            pass
-        return
-
-    if data.startswith("show_rules_popup_"):
-        cid = int(data.split("_")[3])
-        cfg = get_config(cid)
-        try:
-            await query.answer(cfg.get("rules_text", "No rules set.")[:200], show_alert=True)
         except Exception:
             pass
         return
@@ -704,7 +696,7 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
 
     cfg = get_config(chat.id)
 
-    # 1. Main Page Switchers
+    # 1. Page Switcher
     if data.startswith("cfg_page_"):
         page = data.split("_")[2]
         cid = int(data.split("_")[3])
@@ -747,42 +739,15 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
         await fast_edit(query, get_alphabets_text(cid), get_alphabets_keyboard(cid))
         return
 
-    # 3. OTHER MODULE HANDLERS
-    if data.startswith("cfg_view_flood_"):
+    # Fallback to standard menus
+    if data.startswith("cfg_view_reg_") or data.startswith("cfg_view_welcome_") or data.startswith("cfg_view_flood_") or data.startswith("cfg_view_goodbye_"):
         cid = int(data.split("_")[3])
-        user_states.pop((cid, user.id), None)
-        text = f"🗣 <b>Antiflood</b>\nFrom this menu you can set a punishment for those who send many messages in a short time."
-        await fast_edit(query, text, InlineKeyboardMarkup([[create_btn("⬅️ Back", callback_data=f"cfg_page_1_{cid}")]]))
+        text = f"⚙️ <b>Module Settings</b>\nManage configuration directly from this panel."
+        kb = [[create_btn("⬅️ Back", callback_data=f"cfg_page_1_{cid}")]]
+        await fast_edit(query, text, InlineKeyboardMarkup(kb))
         return
 
-    if data.startswith("cfg_view_welcome_"):
-        cid = int(data.split("_")[3])
-        user_states.pop((cid, user.id), None)
-        text = f"💬 <b>Welcome Message</b>\nFrom this menu you can set a welcome message that will be sent when someone joins."
-        await fast_edit(query, text, InlineKeyboardMarkup([[create_btn("⬅️ Back", callback_data=f"cfg_page_1_{cid}")]]))
-        return
-
-    if data.startswith("cfg_view_goodbye_"):
-        cid = int(data.split("_")[3])
-        user_states.pop((cid, user.id), None)
-        text = f"👋 <b>Goodbye</b>\nFrom this menu you can set a goodbye message that will be sent when someone leaves."
-        await fast_edit(query, text, InlineKeyboardMarkup([[create_btn("⬅️ Back", callback_data=f"cfg_page_1_{cid}")]]))
-        return
-
-    if data.startswith("cfg_view_reg_"):
-        cid = int(data.split("_")[3])
-        user_states.pop((cid, user.id), None)
-        text = "📜 <b>Group's regulations</b>\nFrom this menu you can manage group regulations."
-        await fast_edit(query, text, InlineKeyboardMarkup([[create_btn("⬅️ Back", callback_data=f"cfg_page_1_{cid}")]]))
-        return
-
-    if data.startswith("aspam_main_"):
-        cid = int(data.split("_")[2])
-        text = "✉️ <b>Anti-Spam</b>\nProtect your group from unnecessary links, forwards, and quotes."
-        await fast_edit(query, text, InlineKeyboardMarkup([[create_btn("⬅️ Back", callback_data=f"cfg_page_1_{cid}")]]))
-        return
-
-# ----------------- SECURITY & AUTO MODERATION (ALPHABETS + ANTISPAM) ----------------- #
+# ----------------- SECURITY & MODERATION (ALPHABETS) ----------------- #
 async def security_moderator(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.from_user:
         return
@@ -796,7 +761,6 @@ async def security_moderator(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if await is_user_admin(chat.id, user.id, context):
         return
 
-    # --- ALPHABETS SCRIPT FILTER ---
     penalties = cfg.get("alpha_penalties", {})
     deletes = cfg.get("alpha_deletes", {})
 
@@ -870,19 +834,16 @@ async def update_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).concurrent_updates(True).build()
 
-    # Commands
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("settings", settings_command))
     app.add_handler(CommandHandler("update", update_command))
 
-    # Single Fast Router
     app.add_handler(CallbackQueryHandler(unified_callback_handler))
 
-    # Handlers
     app.add_handler(MessageHandler(filters.Regex(r"(?i)^pip3?\s+install\s+"), auto_pip_installer))
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, security_moderator))
 
-    print("🛡 Group Help Security Bot running with complete Alphabets module & SQLite persistence...")
+    print("🛡 Group Help Security Bot running with native success button colors...")
     app.run_polling()
 
 if __name__ == "__main__":
