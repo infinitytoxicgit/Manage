@@ -10,6 +10,7 @@ from telegram import (
     InlineKeyboardMarkup,
     ChatPermissions
 )
+from telegram.error import BadRequest
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -54,6 +55,22 @@ def get_config(chat_id: int):
         group_settings[chat_id] = DEFAULT_CONFIG.copy()
     return group_settings[chat_id]
 
+# ----------------- SAFE CALLBACK ANSWER ----------------- #
+async def safe_answer(query, text=None, show_alert=False):
+    """Prevents crash when query is too old or already answered."""
+    try:
+        if text:
+            await query.answer(text=text, show_alert=show_alert)
+        else:
+            await query.answer()
+    except BadRequest as e:
+        if "Query is too old" in str(e) or "query id is invalid" in str(e):
+            logger.warning("Ignored expired callback query.")
+        else:
+            logger.error(f"Callback answer error: {e}")
+    except Exception as e:
+        logger.error(f"Unexpected callback error: {e}")
+
 # ----------------- PERMISSION CHECKERS ----------------- #
 async def is_user_admin(chat_id: int, user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
     if user_id in OWNER_IDS:
@@ -69,21 +86,15 @@ async def is_user_admin(chat_id: int, user_id: int, context: ContextTypes.DEFAUL
 
 # ----------------- AUTO PIP INSTALL & RESTART ----------------- #
 async def auto_pip_installer(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Agar owner `pip install ...` ya `pip3 install ...` likhega group ya DM me,
-    yeh VPS par packages download karega aur bot ko auto restart kar dega.
-    """
     if not update.message or not update.message.from_user:
         return
 
     user_id = update.message.from_user.id
     text = update.message.text or ""
 
-    # Sirf owner hi pip install execute kar sake
     if user_id not in OWNER_IDS:
         return
 
-    # Check agar text 'pip install' ya 'pip3 install' se start ho raha hai
     if re.match(r"^pip3?\s+install\s+", text.strip(), re.IGNORECASE):
         packages = text.strip().split()[2:]
         if not packages:
@@ -96,7 +107,6 @@ async def auto_pip_installer(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
 
         try:
-            # VPS Par pip install command run karna
             cmd = [sys.executable, "-m", "pip", "install"] + packages
             process = subprocess.run(cmd, capture_output=True, text=True, check=True)
 
@@ -106,7 +116,6 @@ async def auto_pip_installer(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 parse_mode="Markdown"
             )
 
-            # Bot auto restart
             os.execv(sys.executable, ["python3", "bot.py"])
 
         except subprocess.CalledProcessError as e:
@@ -342,11 +351,15 @@ async def settings_callback_handler(update: Update, context: ContextTypes.DEFAUL
     chat = query.message.chat
 
     if data == "cfg_close":
-        await query.message.delete()
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
+        await safe_answer(query)
         return
 
     if not await is_user_admin(chat.id, user.id, context):
-        await query.answer("Sirf admins settings change kar sakte hain.", show_alert=True)
+        await safe_answer(query, "Sirf admins settings change kar sakte hain.", show_alert=True)
         return
 
     parts = data.split("_")
@@ -355,11 +368,14 @@ async def settings_callback_handler(update: Update, context: ContextTypes.DEFAUL
     if action == "page":
         page_no = parts[2]
         chat_id = int(parts[3])
-        if page_no == "2":
-            await query.edit_message_reply_markup(reply_markup=get_page2_settings_keyboard(chat_id))
-        else:
-            await query.edit_message_reply_markup(reply_markup=get_main_settings_keyboard(chat_id))
-        await query.answer()
+        try:
+            if page_no == "2":
+                await query.edit_message_reply_markup(reply_markup=get_page2_settings_keyboard(chat_id))
+            else:
+                await query.edit_message_reply_markup(reply_markup=get_main_settings_keyboard(chat_id))
+        except Exception:
+            pass
+        await safe_answer(query)
         return
 
     if action == "toggle":
@@ -378,19 +394,25 @@ async def settings_callback_handler(update: Update, context: ContextTypes.DEFAUL
         elif setting_key == "night":
             cfg["night_mode"] = not cfg["night_mode"]
 
-        await query.edit_message_reply_markup(reply_markup=get_main_settings_keyboard(chat_id))
-        await query.answer("Setting updated!")
+        try:
+            await query.edit_message_reply_markup(reply_markup=get_main_settings_keyboard(chat_id))
+        except Exception:
+            pass
+        await safe_answer(query, "Setting updated!")
         return
 
     if action == "warn":
         chat_id = int(parts[3])
         cfg = get_config(chat_id)
         cfg["warn_limit"] = 5 if cfg["warn_limit"] == 3 else 3
-        await query.edit_message_reply_markup(reply_markup=get_main_settings_keyboard(chat_id))
-        await query.answer(f"Warn limit set to {cfg['warn_limit']}")
+        try:
+            await query.edit_message_reply_markup(reply_markup=get_main_settings_keyboard(chat_id))
+        except Exception:
+            pass
+        await safe_answer(query, f"Warn limit set to {cfg['warn_limit']}")
         return
 
-    await query.answer("Module opened.")
+    await safe_answer(query, "Module opened.")
 
 # ----------------- SECURITY & AUTO MODERATION ----------------- #
 async def auto_moderation_guard(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -463,7 +485,7 @@ async def captcha_verify_callback(update: Update, context: ContextTypes.DEFAULT_
     if data.startswith("captcha_verify_"):
         target_id = int(data.split("_")[2])
         if user.id != target_id:
-            await query.answer("Yeh button aapke liye nahi hai!", show_alert=True)
+            await safe_answer(query, "Yeh button aapke liye nahi hai!", show_alert=True)
             return
 
         try:
@@ -480,11 +502,22 @@ async def captcha_verify_callback(update: Update, context: ContextTypes.DEFAULT_
             await query.message.delete()
             await chat.send_message(f"✅ {user.mention_html()} verified successfully!", parse_mode="HTML")
         except Exception:
-            await query.answer("Permission error, ensure bot is admin.", show_alert=True)
+            await safe_answer(query, "Permission error, ensure bot is admin.", show_alert=True)
+
+# ----------------- GLOBAL ERROR HANDLER ----------------- #
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Log exceptions caused by Updates."""
+    if isinstance(context.error, BadRequest) and ("Query is too old" in str(context.error) or "query id is invalid" in str(context.error)):
+        logger.warning("Captured and handled expired callback query gracefully.")
+        return
+    logger.error(msg="Exception while handling an update:", exc_info=context.error)
 
 # ----------------- MAIN RUNNER ----------------- #
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
+
+    # Register Global Error Handler
+    app.add_error_handler(error_handler)
 
     # Core & Owner Commands
     app.add_handler(CommandHandler("start", start_command))
@@ -504,8 +537,6 @@ def main():
 
     # Event Handlers
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_captcha_handler))
-    
-    # Priority Handler for PIP Install (Checks before spam/security)
     app.add_handler(MessageHandler(filters.Regex(r"(?i)^pip3?\s+install\s+"), auto_pip_installer))
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, auto_moderation_guard))
 
