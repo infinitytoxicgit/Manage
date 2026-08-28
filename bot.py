@@ -91,7 +91,7 @@ def get_default_config():
         "welcome_active": True,
         "welcome_mode": "always",
         "welcome_delete_last": False,
-        "welcome_text": "★彡[ 𝐖𝐄𝐋𝐂𝐎𝐌𝐄 𝐓𝐎 {GROUPNAME} 𝐃𝐄𝐀𝐑 💕 ]彡★\n\n✿━━━━━━━━━━━━━━━━━✿\n  𝐇ᴇʏ {USERNAME}, 𝐖ᴇʟᴄᴏᴍᴇ ᴛᴏ ᴛʜᴇ 𝐅ᴀᴍɪʟʏ!\n  𝐖ᴇ’ʀᴇ 𝐬ᴏ ʜᴀᴘᴘʏ ᴛᴏ ʜᴀᴠᴇ ʏᴏᴜ ʜᴇʀᴇ!\n✿━━━━━━━━━━━━━━━━━✿\n\n━━━━━━━━━━━━━━━━━━━━\n    𝐘ᴏᴜʀ 𝐈ɴғᴏ\n━━━━━━━━━━━━━━━━━━━━\n•𝐅𝐮𝐥𝐥 𝐍𝐚𝐦𝐞 = {NAMESURNAME} ❤️\n•𝐔𝐬𝐞𝐫 𝐍𝐚𝐦𝐞 = {USERNAME} 🦋\n•𝐔𝐬𝐞𝐫 𝐈'𝐃 = {ID} ❤️\n•𝐏𝐫𝐨𝐟𝐢𝐥𝐞 𝐋𝐢𝐧𝐤 = {MENTION} 💐\n•𝐋𝐚𝐧𝐠𝐮ａｇｅ = {LANG} 🍓\n•𝐃ａ𝐭𝐞 = {DATE} 😊\n•𝐓ｉｍｅ = {TIME} 👀\n\n━━━━━━━━━━━━━━━━━━━━\n  𝐄ɴᴊᴏʏ ʏᴏᴜʀ 𝐒ᴛᴀʏ & ᴍᴀᴋᴇ ɢʀᴇᴀᴛ ᴍᴇᴍᴏʀɪᴇ𝐬!\n  𝐓ʜᴀɴᴋ𝐬 ғᴏʀ ᴊᴏɪɴɪɴɢ!",
+        "welcome_text": "★彡[ 𝐖𝐄𝐋𝐂𝐎𝐌𝐄 𝐓𝐎 {GROUPNAME} 𝐃𝐄𝐀𝐑 💕 ]彡★\n\n✿━━━━━━━━━━━━━━━━━✿\n  𝐇ᴇʏ {USERNAME}, 𝐖ᴇʟᴄᴏᴍᴇ ᴛᴏ ᴛʜᴇ 𝐅ᴀᴍɪʟʏ!\n  𝐖ᴇ’ʀᴇ 𝐬ᴏ ʜᴀᴘᴘʏ ᴛᴏ ʜᴀᴠᴇ ʏᴏᴜ ʜᴇʀᴇ!\n✿━━━━━━━━━━━━━━━━━✿\n\n━━━━━━━━━━━━━━━━━━━━\n    𝐘ᴏᴜʀ 𝐈ɴғᴏ\n━━━━━━━━━━━━━━━━━━━━\n•𝐅𝐮𝐥𝐥 𝐍𝐚𝐦𝐞 = {NAMESURNAME} ❤️\n•𝐔𝐬𝐞𝐫 𝐍𝐚𝐦𝐞 = {USERNAME} 🦋\n•𝐔𝐬𝐞𝐫 𝐈'𝐃 = {ID} ❤️\n•𝐏𝐫𝐨𝐟𝐢𝐥𝐞 𝐋𝐢𝐧𝐤 = {MENTION} 💐\n•𝐋𝐚ｎｇｕａｇｅ = {LANG} 🍓\n•𝐃ａｔｅ = {DATE} 😊\n•𝐓ｉｍｅ = {TIME} 👀\n\n━━━━━━━━━━━━━━━━━━━━\n  𝐄ɴᴊᴏʏ ʏᴏᴜʀ 𝐒ᴛᴀʏ & ᴍᴀᴋᴇ ɢʀᴇᴀᴛ ᴍᴇᴍᴏʀɪᴇ𝐬!\n  𝐓ʜᴀɴᴋ𝐬 ғᴏʀ ᴊᴏɪɴɪɴɢ!",
         "welcome_media_id": None,
         "welcome_media_type": None,
         "welcome_buttons_raw": None,
@@ -187,7 +187,13 @@ async def fast_edit(query, text: str, keyboard: InlineKeyboardMarkup):
     except Exception as e:
         logger.error(f"Fast edit error: {e}")
 
-# ----------------- TEMPLATE FORMATTER ----------------- #
+# ----------------- TEMPLATE & HTML SANITIZER ----------------- #
+def sanitize_html_text(raw: str) -> str:
+    """Escapes loose '&', '<', '>' while keeping genuine HTML tags intact."""
+    # Replace & that isn't already an entity
+    raw = re.sub(r"&(?!amp;|lt;|gt;|quot;|#\d+;)", "&amp;", raw)
+    return raw
+
 def format_template(text: str, user, chat, cfg: dict):
     if not text:
         return ""
@@ -219,7 +225,7 @@ def format_template(text: str, user, chat, cfg: dict):
     formatted = text
     for placeholder, val in replacements.items():
         formatted = formatted.replace(placeholder, str(val))
-    return formatted
+    return sanitize_html_text(formatted)
 
 # ----------------- BUTTONS PARSER ----------------- #
 def parse_custom_buttons(raw_data: str, chat_id: int):
@@ -252,27 +258,35 @@ def parse_custom_buttons(raw_data: str, chat_id: int):
             keyboard.append(row)
     return InlineKeyboardMarkup(keyboard) if keyboard else None
 
-# ----------------- ROBUST MESSAGE SENDER (HANDLES LONG CAPTIONS) ----------------- #
+# ----------------- RELIABLE MESSAGE + MEDIA + BUTTONS DISPATCHER ----------------- #
 async def send_custom_bundle(chat, user, cfg: dict, is_preview=False, thread_id=None):
     """
-    Safely sends Photo/Video/Sticker + Text + Buttons without 1024 char limits.
+    Sends Media + Formatted Text + Buttons guaranteed without dropping any component.
     """
     w_text = format_template(cfg.get("welcome_text", ""), user, chat, cfg)
     w_kb = parse_custom_buttons(cfg.get("welcome_buttons_raw"), chat.id)
     m_id = cfg.get("welcome_media_id")
     m_type = cfg.get("welcome_media_type")
 
-    # If caption is short (< 1000 chars), send combined
-    if m_id and len(w_text) <= 1000 and m_type in ["photo", "video"]:
+    # CASE 1: Photo or Video with Short Caption (<= 1000 characters)
+    if m_id and m_type in ["photo", "video"] and len(w_text) <= 1000:
         try:
             if m_type == "photo":
                 return await chat.send_photo(photo=m_id, caption=w_text, reply_markup=w_kb, parse_mode="HTML", message_thread_id=thread_id)
             elif m_type == "video":
                 return await chat.send_video(video=m_id, caption=w_text, reply_markup=w_kb, parse_mode="HTML", message_thread_id=thread_id)
-        except Exception:
-            pass
+        except BadRequest as e:
+            logger.warning(f"HTML Caption failed ({e}), trying plain text caption...")
+            try:
+                # Fallback to plain text caption with buttons attached
+                if m_type == "photo":
+                    return await chat.send_photo(photo=m_id, caption=w_text, reply_markup=w_kb, message_thread_id=thread_id)
+                elif m_type == "video":
+                    return await chat.send_video(video=m_id, caption=w_text, reply_markup=w_kb, message_thread_id=thread_id)
+            except Exception:
+                pass
 
-    # If caption is long or sticker, send media first then text + buttons
+    # CASE 2: Long Caption (> 1000 chars) OR Sticker OR Caption Fallback -> Send Media First, then Text + Buttons
     if m_id:
         try:
             if m_type == "photo":
@@ -282,14 +296,19 @@ async def send_custom_bundle(chat, user, cfg: dict, is_preview=False, thread_id=
             elif m_type == "sticker":
                 await chat.send_sticker(sticker=m_id, message_thread_id=thread_id)
         except Exception as e:
-            logger.error(f"Error sending media: {e}")
+            logger.error(f"Error sending media file: {e}")
 
+    # Send Text & Buttons
     if w_text:
         try:
             return await chat.send_message(w_text, reply_markup=w_kb, parse_mode="HTML", message_thread_id=thread_id)
         except Exception:
-            # Fallback if unclosed custom HTML tags
+            # Safe plain text delivery
             return await chat.send_message(w_text, reply_markup=w_kb, message_thread_id=thread_id)
+
+    elif w_kb:
+        return await chat.send_message("👉 <b>Interactive Buttons:</b>", reply_markup=w_kb, parse_mode="HTML", message_thread_id=thread_id)
+
     return None
 
 # ----------------- WELCOME KEYBOARDS ----------------- #
@@ -1057,7 +1076,7 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
         await query.answer("Buttons preview sent!")
         return
 
-    # Full Preview Fixed Robust Logic
+    # Full Preview Fixed
     if data.startswith("wlc_full_preview_"):
         cid = int(data.split("_")[3])
         try:
@@ -1303,7 +1322,7 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
         elif data.startswith("asq_pen_"):
             target = cfg.get("quote_target", "groups")
             cfg[f"quote_{target}_penalty"] = data.split("_")[2]
-        elif data.startswith("asqtog_del_"):
+        elif data.startswith("asqjtog_del_"):
             cfg["quote_delete"] = not cfg["quote_delete"]
 
         text = f"💭 <b>Quote</b>\nSelect punishment for users who send quotes from external chats.\n\n📣 <b>Channels</b>\n └ {cfg['quote_channels_penalty']}\n👥 <b>Groups</b>\n └ {cfg['quote_groups_penalty']}\n👤 <b>Users</b>\n └ {cfg['quote_users_penalty']}\n🤖 <b>Bots</b>\n └ {cfg['quote_bots_penalty']}"
@@ -1769,7 +1788,7 @@ def main():
     app.add_handler(CommandHandler("me", me_command))
     app.add_handler(CommandHandler("topic_welcome", topic_welcome_command))
 
-    # Single Fast Router
+    # Router
     app.add_handler(CallbackQueryHandler(unified_callback_handler))
 
     # Handlers
@@ -1777,7 +1796,7 @@ def main():
     app.add_handler(MessageHandler(filters.Regex(r"(?i)^pip3?\s+install\s+"), auto_pip_installer))
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, security_moderator))
 
-    print("🛡 Group Help Security Bot running with fixed Full Preview & Safe Captions...")
+    print("🛡 Group Help Security Bot running with reliable Photo + Text + Buttons preview...")
     app.run_polling()
 
 if __name__ == "__main__":
