@@ -91,7 +91,7 @@ def get_default_config():
         "welcome_active": True,
         "welcome_mode": "always",
         "welcome_delete_last": False,
-        "welcome_text": "★彡[ 𝐖𝐄𝐋𝐂𝐎𝐌𝐄 𝐓𝐎 {GROUPNAME} 𝐃𝐄𝐀𝐑 💕 ]彡★\n\n✿━━━━━━━━━━━━━━━━━✿\n  𝐇ᴇʏ {USERNAME}, 𝐖ᴇʟᴄᴏᴍᴇ ᴛᴏ ᴛʜᴇ 𝐅ᴀᴍɪʟʏ!\n  𝐖ᴇ’ʀᴇ 𝐬ᴏ ʜᴀᴘᴘʏ ᴛᴏ ʜᴀᴠᴇ ʏᴏᴜ ʜᴇʀᴇ!\n✿━━━━━━━━━━━━━━━━━✿\n\n━━━━━━━━━━━━━━━━━━━━\n    𝐘ᴏᴜʀ 𝐈ɴғᴏ\n━━━━━━━━━━━━━━━━━━━━\n•𝐅𝐮𝐥𝐥 𝐍𝐚𝐦𝐞 = {NAMESURNAME} ❤️\n•𝐔𝐬𝐞𝐫 𝐍𝐚𝐦𝐞 = {USERNAME} 🦋\n•𝐔𝐬𝐞𝐫 𝐈'𝐃 = {ID} ❤️\n•𝐏𝐫𝐨𝐟𝐢𝐥𝐞 𝐋𝐢𝐧𝐤 = {MENTION} 💐\n•𝐋𝐚𝐧𝐠𝐮𝐚𝐠𝐞 = {LANG} 🍓\n•𝐃𝐚𝐭𝐞 = {DATE} 😊\n•𝐓𝐢𝐦𝐞 = {TIME} 👀\n\n━━━━━━━━━━━━━━━━━━━━\n  𝐄ɴᴊᴏʏ ʏᴏᴜʀ 𝐒ᴛᴀʏ & ᴍᴀᴋᴇ ɢʀᴇᴀᴛ ᴍᴇᴍᴏʀɪᴇ𝐬!\n  𝐓ʜᴀɴᴋ𝐬 ғᴏʀ ᴊᴏɪɴɪɴɢ!",
+        "welcome_text": "★彡[ 𝐖𝐄𝐋𝐂𝐎𝐌𝐄 𝐓𝐎 {GROUPNAME} 𝐃𝐄𝐀𝐑 💕 ]彡★\n\n✿━━━━━━━━━━━━━━━━━✿\n  𝐇ᴇʏ {USERNAME}, 𝐖ᴇʟᴄᴏᴍᴇ ᴛᴏ ᴛʜᴇ 𝐅ᴀᴍɪʟʏ!\n  𝐖ᴇ’ʀᴇ 𝐬ᴏ ʜᴀᴘᴘʏ ᴛᴏ ʜᴀᴠᴇ ʏᴏᴜ ʜᴇʀᴇ!\n✿━━━━━━━━━━━━━━━━━✿\n\n━━━━━━━━━━━━━━━━━━━━\n    𝐘ᴏᴜʀ 𝐈ɴғᴏ\n━━━━━━━━━━━━━━━━━━━━\n•𝐅𝐮𝐥𝐥 𝐍𝐚𝐦𝐞 = {NAMESURNAME} ❤️\n•𝐔𝐬𝐞𝐫 𝐍𝐚𝐦𝐞 = {USERNAME} 🦋\n•𝐔𝐬𝐞𝐫 𝐈'𝐃 = {ID} ❤️\n•𝐏𝐫𝐨𝐟𝐢𝐥𝐞 𝐋𝐢𝐧𝐤 = {MENTION} 💐\n•𝐋𝐚𝐧𝐠𝐮ａｇｅ = {LANG} 🍓\n•𝐃ａ𝐭𝐞 = {DATE} 😊\n•𝐓ｉｍｅ = {TIME} 👀\n\n━━━━━━━━━━━━━━━━━━━━\n  𝐄ɴᴊᴏʏ ʏᴏᴜʀ 𝐒ᴛᴀʏ & ᴍᴀᴋᴇ ɢʀᴇᴀᴛ ᴍᴇᴍᴏʀɪᴇ𝐬!\n  𝐓ʜᴀɴᴋ𝐬 ғᴏʀ ᴊᴏɪɴɪɴɢ!",
         "welcome_media_id": None,
         "welcome_media_type": None,
         "welcome_buttons_raw": None,
@@ -252,6 +252,46 @@ def parse_custom_buttons(raw_data: str, chat_id: int):
             keyboard.append(row)
     return InlineKeyboardMarkup(keyboard) if keyboard else None
 
+# ----------------- ROBUST MESSAGE SENDER (HANDLES LONG CAPTIONS) ----------------- #
+async def send_custom_bundle(chat, user, cfg: dict, is_preview=False, thread_id=None):
+    """
+    Safely sends Photo/Video/Sticker + Text + Buttons without 1024 char limits.
+    """
+    w_text = format_template(cfg.get("welcome_text", ""), user, chat, cfg)
+    w_kb = parse_custom_buttons(cfg.get("welcome_buttons_raw"), chat.id)
+    m_id = cfg.get("welcome_media_id")
+    m_type = cfg.get("welcome_media_type")
+
+    # If caption is short (< 1000 chars), send combined
+    if m_id and len(w_text) <= 1000 and m_type in ["photo", "video"]:
+        try:
+            if m_type == "photo":
+                return await chat.send_photo(photo=m_id, caption=w_text, reply_markup=w_kb, parse_mode="HTML", message_thread_id=thread_id)
+            elif m_type == "video":
+                return await chat.send_video(video=m_id, caption=w_text, reply_markup=w_kb, parse_mode="HTML", message_thread_id=thread_id)
+        except Exception:
+            pass
+
+    # If caption is long or sticker, send media first then text + buttons
+    if m_id:
+        try:
+            if m_type == "photo":
+                await chat.send_photo(photo=m_id, message_thread_id=thread_id)
+            elif m_type == "video":
+                await chat.send_video(video=m_id, message_thread_id=thread_id)
+            elif m_type == "sticker":
+                await chat.send_sticker(sticker=m_id, message_thread_id=thread_id)
+        except Exception as e:
+            logger.error(f"Error sending media: {e}")
+
+    if w_text:
+        try:
+            return await chat.send_message(w_text, reply_markup=w_kb, parse_mode="HTML", message_thread_id=thread_id)
+        except Exception:
+            # Fallback if unclosed custom HTML tags
+            return await chat.send_message(w_text, reply_markup=w_kb, message_thread_id=thread_id)
+    return None
+
 # ----------------- WELCOME KEYBOARDS ----------------- #
 def get_welcome_main_keyboard(chat_id: int):
     cfg = get_config(chat_id)
@@ -282,6 +322,11 @@ def get_welcome_main_keyboard(chat_id: int):
     return InlineKeyboardMarkup(keyboard)
 
 def get_welcome_customize_keyboard(chat_id: int):
+    cfg = get_config(chat_id)
+    has_text = "✅" if cfg.get("welcome_text") else "❌"
+    has_media = "✅" if cfg.get("welcome_media_id") else "❌"
+    has_buttons = "✅" if cfg.get("welcome_buttons_raw") else "❌"
+
     keyboard = [
         [
             create_btn("📄 Text", callback_data=f"wlc_set_text_{chat_id}"),
@@ -604,6 +649,7 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
     chat = query.message.chat
     user = query.from_user
 
+    # Revoke Link
     if data.startswith("rvk_"):
         link_id = data.split("_")[1]
         link_info = active_created_links.get(link_id)
@@ -633,6 +679,7 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
             await query.answer(f"Failed to revoke link: {e}", show_alert=True)
         return
 
+    # Popups
     if data.startswith("popalert_"):
         txt = data.split("_", 1)[1]
         try:
@@ -976,9 +1023,9 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
         try:
             await chat.send_message(f"👁️ <b>Text Preview:</b>\n\n{w_text}", parse_mode="HTML")
             await query.answer("Preview sent!")
-        except Exception as e:
-            await chat.send_message(f"👁️ <b>Text Preview (Plain):</b>\n\n{w_text}")
-            await query.answer("Preview sent plain text.")
+        except Exception:
+            await chat.send_message(f"👁️ <b>Text Preview:</b>\n\n{w_text}")
+            await query.answer("Preview sent.")
         return
 
     if data.startswith("wlc_see_media_"):
@@ -1010,31 +1057,15 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
         await query.answer("Buttons preview sent!")
         return
 
+    # Full Preview Fixed Robust Logic
     if data.startswith("wlc_full_preview_"):
         cid = int(data.split("_")[3])
-        w_text = format_template(cfg.get("welcome_text", ""), user, chat, cfg)
-        w_kb = parse_custom_buttons(cfg.get("welcome_buttons_raw"), cid)
-        m_id = cfg.get("welcome_media_id")
-        m_type = cfg.get("welcome_media_type")
-
         try:
-            if m_type == "photo":
-                await chat.send_photo(photo=m_id, caption=w_text, reply_markup=w_kb, parse_mode="HTML")
-            elif m_type == "video":
-                await chat.send_video(video=m_id, caption=w_text, reply_markup=w_kb, parse_mode="HTML")
-            elif m_type == "sticker":
-                await chat.send_sticker(sticker=m_id)
-                if w_text:
-                    await chat.send_message(w_text, reply_markup=w_kb, parse_mode="HTML")
-            else:
-                if w_text:
-                    await chat.send_message(w_text, reply_markup=w_kb, parse_mode="HTML")
-            await query.answer("Full preview sent!")
+            await send_custom_bundle(chat, user, cfg, is_preview=True)
+            await query.answer("Full preview sent successfully!")
         except Exception as e:
-            # Fallback without HTML if custom symbols broken
-            if w_text:
-                await chat.send_message(w_text, reply_markup=w_kb)
-            await query.answer("Full preview sent (Safe Mode).")
+            logger.error(f"Full preview error: {e}")
+            await query.answer(f"Preview error: {e}", show_alert=True)
         return
 
     if data.startswith("wlc_topic_info_"):
@@ -1390,7 +1421,7 @@ async def interactive_state_processor(update: Update, context: ContextTypes.DEFA
         await msg.reply_text("✅ <b>Buttons set.</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
         return True
 
-    # Welcome States (Matches exact screenshot flow)
+    # Welcome States
     elif state == "awaiting_wlc_text":
         cfg["welcome_text"] = text
         kb = [[create_btn("⬅️ Back", callback_data=f"wlc_custom_{chat_id}")]]
@@ -1572,38 +1603,17 @@ async def new_member_welcome_handler(update: Update, context: ContextTypes.DEFAU
             except Exception:
                 pass
 
-        w_text = format_template(cfg.get("welcome_text", ""), member, chat, cfg)
-        w_kb = parse_custom_buttons(cfg.get("welcome_buttons_raw"), chat.id)
-        m_id = cfg.get("welcome_media_id")
-        m_type = cfg.get("welcome_media_type")
         thread_id = cfg.get("welcome_topic_id")
+        sent_msg = await send_custom_bundle(chat, member, cfg, is_preview=False, thread_id=thread_id)
 
-        sent_msg = None
-        try:
-            if m_type == "photo":
-                sent_msg = await chat.send_photo(photo=m_id, caption=w_text, reply_markup=w_kb, message_thread_id=thread_id, parse_mode="HTML")
-            elif m_type == "video":
-                sent_msg = await chat.send_video(video=m_id, caption=w_text, reply_markup=w_kb, message_thread_id=thread_id, parse_mode="HTML")
-            elif m_type == "sticker":
-                await chat.send_sticker(sticker=m_id, message_thread_id=thread_id)
-                if w_text:
-                    sent_msg = await chat.send_message(w_text, reply_markup=w_kb, message_thread_id=thread_id, parse_mode="HTML")
-            else:
-                if w_text:
-                    sent_msg = await chat.send_message(w_text, reply_markup=w_kb, message_thread_id=thread_id, parse_mode="HTML")
-
-            if sent_msg and cfg.get("welcome_delete_last"):
-                last_welcome_messages[chat.id] = sent_msg.message_id
-
-        except Exception as e:
-            logger.error(f"Error sending welcome message: {e}")
+        if sent_msg and cfg.get("welcome_delete_last"):
+            last_welcome_messages[chat.id] = sent_msg.message_id
 
 # ----------------- SECURITY & AUTO MODERATION ----------------- #
 async def security_moderator(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.from_user:
         return
 
-    # Check interactive text input first
     if await interactive_state_processor(update, context):
         return
 
@@ -1759,7 +1769,7 @@ def main():
     app.add_handler(CommandHandler("me", me_command))
     app.add_handler(CommandHandler("topic_welcome", topic_welcome_command))
 
-    # Single Router
+    # Single Fast Router
     app.add_handler(CallbackQueryHandler(unified_callback_handler))
 
     # Handlers
@@ -1767,7 +1777,7 @@ def main():
     app.add_handler(MessageHandler(filters.Regex(r"(?i)^pip3?\s+install\s+"), auto_pip_installer))
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, security_moderator))
 
-    print("🛡 Group Help Security Bot running smoothly...")
+    print("🛡 Group Help Security Bot running with fixed Full Preview & Safe Captions...")
     app.run_polling()
 
 if __name__ == "__main__":
