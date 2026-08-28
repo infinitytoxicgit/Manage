@@ -38,14 +38,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Data Storage
+# Storage
 group_settings = {}
 user_warns = {}
 staff_roles = {}
 whitelist_storage = {}
 admin_cache = {}
 user_states = {}
-link_drafts = {}  # {chat_id: {"tab": "invitations", "limit": 0, "until_seconds": 0, "approval": False}}
+link_drafts = {}  # {chat_id: {"active_tab": None, "limit": 0, "until_seconds": 0, "approval": False}}
 
 GLOBAL_WHITELIST_ITEMS = {"telegram.org", "t.me/telegram", "durov", "fragment.com"}
 
@@ -55,8 +55,6 @@ def get_default_config():
         "warn_limit": 3,
         "night_mode": False,
         "lock_media": False,
-        
-        # Anti-Spam
         "totallinks_penalty": "Off",
         "totallinks_delete": False,
         "tglinks_penalty": "Off",
@@ -76,14 +74,10 @@ def get_default_config():
         "quote_bots_penalty": "Off",
         "quote_delete": False,
         "global_whitelist_active": True,
-
-        # Group Regulations
         "rules_text": "📜 <b>Group Regulations</b>\n1. Be respectful\n2. No spam or self-promotion\n3. Follow admin instructions.",
         "rules_media_id": None,
         "rules_media_type": None,
         "rules_buttons_raw": None,
-
-        # Permissions
         "perm_staff": "everyone",
         "perm_rules": "staff",
         "perm_me": "private",
@@ -104,9 +98,9 @@ def get_whitelist(chat_id: int):
 def get_link_draft(chat_id: int):
     if chat_id not in link_drafts:
         link_drafts[chat_id] = {
-            "tab": "invitations",
+            "active_tab": None,  # None = collapsed, "invitations", "until"
             "limit": 0,
-            "until_seconds": 86400,  # default 24h
+            "until_seconds": 0,
             "approval": False
         }
     return link_drafts[chat_id]
@@ -159,45 +153,10 @@ async def fast_edit(query, text: str, keyboard: InlineKeyboardMarkup):
     except Exception as e:
         logger.error(f"Fast edit error: {e}")
 
-# ----------------- BUTTONS PARSER ----------------- #
-def parse_custom_buttons(raw_data: str, chat_id: int):
-    if not raw_data:
-        return None
-    keyboard = []
-    lines = raw_data.strip().splitlines()
-    for line in lines:
-        row = []
-        parts = line.split("&&")
-        for part in parts:
-            if "-" not in part:
-                continue
-            title, action = part.split("-", 1)
-            title = title.strip()
-            action = action.strip()
-
-            if action.lower() == "rules":
-                row.append(create_btn(title, callback_data=f"show_rules_popup_{chat_id}"))
-            elif action.lower().startswith("popup:") or action.lower().startswith("alert:"):
-                txt = action.split(":", 1)[1].strip()
-                row.append(create_btn(title, callback_data=f"popalert_{txt[:40]}"))
-            elif action.lower().startswith("share:"):
-                share_txt = action.split(":", 1)[1].strip()
-                encoded_url = f"https://t.me/share/url?url={urllib.parse.quote(share_txt)}"
-                row.append(create_btn(title, url=encoded_url))
-            elif action.lower().startswith("copy:"):
-                copy_txt = action.split(":", 1)[1].strip()
-                row.append(create_btn(title, callback_data=f"popcopy_{copy_txt[:40]}"))
-            else:
-                link = action if action.startswith(("http://", "https://", "t.me/")) else f"https://{action}"
-                row.append(create_btn(title, url=link))
-        if row:
-            keyboard.append(row)
-    return InlineKeyboardMarkup(keyboard) if keyboard else None
-
-# ----------------- LINK CREATOR KEYBOARD ----------------- #
+# ----------------- LINK CREATOR GENERATOR ----------------- #
 def get_link_creator_keyboard(chat_id: int):
     draft = get_link_draft(chat_id)
-    tab = draft["tab"]
+    tab = draft["active_tab"]
     cur_limit = draft["limit"]
     cur_until = draft["until_seconds"]
     cur_approval = draft["approval"]
@@ -205,14 +164,14 @@ def get_link_creator_keyboard(chat_id: int):
     # Top Tabs
     t_inv = "» 📋 Invitations «" if tab == "invitations" else "📋 Invitations"
     t_unt = "» ⏰ Until «" if tab == "until" else "⏰ Until"
+    
     row_tabs = [
-        create_btn(t_inv, callback_data=f"lnktab_invitations_{chat_id}", style="primary" if tab=="invitations" else None),
-        create_btn(t_unt, callback_data=f"lnktab_until_{chat_id}", style="primary" if tab=="until" else None)
+        create_btn(t_inv, callback_data=f"lnktab_invitations_{chat_id}", style="primary" if tab == "invitations" else None),
+        create_btn(t_unt, callback_data=f"lnktab_until_{chat_id}", style="primary" if tab == "until" else None)
     ]
-
     keyboard = [row_tabs]
 
-    # Grid selection depending on active Tab
+    # Expand Sub-Grid only when Tab is clicked
     if tab == "invitations":
         limits = [(0, "• No •"), (1, "1"), (2, "2"), (5, "5"), (10, "10"), (20, "20"), (50, "50"), (100, "100")]
         row1, row2 = [], []
@@ -227,7 +186,6 @@ def get_link_creator_keyboard(chat_id: int):
         keyboard.extend([row1, row2])
 
     elif tab == "until":
-        # Seconds options: 0 (No), 300 (5m), 1800 (30m), 3600 (1h), 43200 (12h), 86400 (24h), 172800 (48h), 604800 (1w)
         times = [(0, "No"), (300, "5m"), (1800, "30m"), (3600, "1h"), (43200, "12h"), (86400, "24h"), (172800, "48h"), (604800, "1w")]
         row1, row2 = [], []
         for sec, lbl in times[:4]:
@@ -240,12 +198,11 @@ def get_link_creator_keyboard(chat_id: int):
             row2.append(create_btn(label, callback_data=f"lnsettim_{sec}_{chat_id}", style="primary" if is_active else None))
         keyboard.extend([row1, row2])
 
-    # Approval Mode Button
+    # Approval mode toggle
     app_icon = "✔️" if cur_approval else "✖️"
-    app_style = "success" if cur_approval else None
-    keyboard.append([create_btn(f"🗂 Approval mode {app_icon}", callback_data=f"lnktog_app_{chat_id}", style=app_style)])
+    keyboard.append([create_btn(f"🗂 Approval mode {app_icon}", callback_data=f"lnktog_app_{chat_id}")])
 
-    # Cancel & Create Action Buttons
+    # Bottom Actions
     keyboard.append([
         create_btn("❌ Cancel", callback_data="cfg_close", style="danger"),
         create_btn("✅ Create link", callback_data=f"lnk_generate_{chat_id}", style="success")
@@ -255,23 +212,52 @@ def get_link_creator_keyboard(chat_id: int):
 
 def get_link_creator_text(chat_id: int):
     draft = get_link_draft(chat_id)
-    until_sec = draft["until_seconds"]
-    if until_sec > 0:
-        exp_date = datetime.datetime.now() + datetime.timedelta(seconds=until_sec)
-        until_str = exp_date.strftime("%d %b %Y, %H:%M")
-    else:
-        until_str = "No limit"
+    lines = ["🔗 <b>Link</b>"]
+
+    if draft["until_seconds"] > 0:
+        exp_date = datetime.datetime.now() + datetime.timedelta(seconds=draft["until_seconds"])
+        lines.append(f" └ ⏰ <b>Until:</b> {exp_date.strftime('%d %b %Y, %H:%M')}")
+
+    if draft["limit"] > 0:
+        lines.append(f" └ 📋 <b>Invitations:</b> {draft['limit']}")
 
     app_str = "Yes" if draft["approval"] else "No"
+    lines.append(f" └ 🗂 <b>Approval mode:</b> {app_str}")
 
-    text = (
-        "🔗 <b>Link</b>\n"
-        f" └ ⏰ <b>Until:</b> {until_str}\n"
-        f" └ 🗂 <b>Approval mode:</b> {app_str}"
-    )
-    return text
+    return "\n".join(lines)
 
-# ----------------- MAIN INLINE KEYBOARDS ----------------- #
+# ----------------- BUTTONS PARSER ----------------- #
+def parse_custom_buttons(raw_data: str, chat_id: int):
+    if not raw_data:
+        return None
+    keyboard = []
+    for line in raw_data.strip().splitlines():
+        row = []
+        for part in line.split("&&"):
+            if "-" not in part:
+                continue
+            title, action = part.split("-", 1)
+            title, action = title.strip(), action.strip()
+
+            if action.lower() == "rules":
+                row.append(create_btn(title, callback_data=f"show_rules_popup_{chat_id}"))
+            elif action.lower().startswith("popup:") or action.lower().startswith("alert:"):
+                txt = action.split(":", 1)[1].strip()
+                row.append(create_btn(title, callback_data=f"popalert_{txt[:40]}"))
+            elif action.lower().startswith("share:"):
+                share_txt = action.split(":", 1)[1].strip()
+                row.append(create_btn(title, url=f"https://t.me/share/url?url={urllib.parse.quote(share_txt)}"))
+            elif action.lower().startswith("copy:"):
+                copy_txt = action.split(":", 1)[1].strip()
+                row.append(create_btn(title, callback_data=f"popcopy_{copy_txt[:40]}"))
+            else:
+                link = action if action.startswith(("http://", "https://", "t.me/")) else f"https://{action}"
+                row.append(create_btn(title, url=link))
+        if row:
+            keyboard.append(row)
+    return InlineKeyboardMarkup(keyboard) if keyboard else None
+
+# ----------------- MAIN SETTINGS KEYBOARDS ----------------- #
 def make_penalty_buttons(prefix: str, current_penalty: str, chat_id: int):
     def get_btn(label, val):
         is_selected = (current_penalty == val)
@@ -447,7 +433,6 @@ def get_global_whitelist_keyboard(chat_id: int):
     is_active = cfg.get("global_whitelist_active", True)
     on_style = "success" if is_active else None
     off_style = "danger" if not is_active else None
-
     keyboard = [
         [
             create_btn("✔ Turn on", callback_data=f"asexc_glbtoggle_on_{chat_id}", style=on_style),
@@ -458,7 +443,7 @@ def get_global_whitelist_keyboard(chat_id: int):
     ]
     return InlineKeyboardMarkup(keyboard)
 
-# ----------------- COMMAND PERMISSIONS ----------------- #
+# ----------------- COMMAND PERMISSIONS CHECK ----------------- #
 async def check_command_allowed(command_name: str, update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     chat = update.effective_chat
     user = update.effective_user
@@ -532,7 +517,6 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
     chat = query.message.chat
     user = query.from_user
 
-    # Handle Popups
     if data.startswith("popalert_"):
         txt = data.split("_", 1)[1]
         try:
@@ -573,12 +557,13 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
             pass
         return
 
-    # Link Creator Dynamic Callbacks
+    # Link Creator Tabs and Grid Handlers
     if data.startswith("lnktab_"):
         tab_name = data.split("_")[1]
         cid = int(data.split("_")[2])
         draft = get_link_draft(cid)
-        draft["tab"] = tab_name
+        # Toggle: click again on active tab closes it, or switches to it
+        draft["active_tab"] = None if draft["active_tab"] == tab_name else tab_name
         await fast_edit(query, get_link_creator_text(cid), get_link_creator_keyboard(cid))
         return
 
@@ -650,7 +635,7 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
 
     cfg = get_config(chat.id)
 
-    # Main Pages Switch
+    # Main Settings Pages
     if data.startswith("cfg_page_"):
         page = data.split("_")[2]
         cid = int(data.split("_")[3])
@@ -764,7 +749,7 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
             await query.answer(f"Preview error: {e}", show_alert=True)
         return
 
-    # Commands Permissions Grid
+    # Permissions Grid
     if data.startswith("reg_cmd_perms_"):
         cid = int(data.split("_")[3])
         text = (
@@ -803,7 +788,7 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
         await fast_edit(query, text, get_cmd_permissions_keyboard(cid))
         return
 
-    # Anti-Spam Hub & Actions
+    # Anti-Spam Handlers
     if data.startswith("aspam_main_"):
         cid = int(data.split("_")[2])
         text = "✉️ <b>Anti-Spam</b>\nIn this menu you can decide whether to protect your groups from unnecessary links, forwards, and quotes."
@@ -908,7 +893,7 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
             await fast_edit(query, text, InlineKeyboardMarkup(keyboard))
         elif action == "add":
             user_states[(cid, user.id)] = "awaiting_whitelist_add"
-            text = f"Ok {user.mention_html()}, now send one or more links to add to Whitelist.\nSend a single link in every line.\n\n<b>Example:</b>\nGoogle.com\nFacebook.com"
+            text = f"Ok {user.mention_html()}, now send one or more links to add to Whitelist.\nSend a single link in every line."
             keyboard = [[create_btn("❌ Cancel", callback_data=f"asexc_main_{cid}", style="danger")]]
             await fast_edit(query, text, InlineKeyboardMarkup(keyboard))
         elif action == "rem":
@@ -953,7 +938,7 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
         await fast_edit(query, text, get_main_settings_keyboard(cid))
         return
 
-# ----------------- TEXT & MEDIA CAPTURE ----------------- #
+# ----------------- TEXT CAPTURE ----------------- #
 async def interactive_state_processor(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     if not update.message or not update.message.from_user:
         return False
@@ -1058,18 +1043,17 @@ async def interactive_state_processor(update: Update, context: ContextTypes.DEFA
 
     return False
 
-# ----------------- PUBLIC & MODERATION COMMANDS ----------------- #
+# ----------------- PUBLIC COMMANDS ----------------- #
 async def link_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await check_command_allowed("link", update, context):
         return
     chat = update.effective_chat
-    user = update.effective_user
 
-    # Reset link draft for the chat
+    # Reset draft to clean collapsed view
     link_drafts[chat.id] = {
-        "tab": "invitations",
+        "active_tab": None,
         "limit": 0,
-        "until_seconds": 86400,
+        "until_seconds": 0,
         "approval": False
     }
 
@@ -1122,12 +1106,7 @@ async def me_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     chat = update.effective_chat
     warns = user_warns.get(chat.id, {}).get(user.id, 0)
-    info = (
-        f"👤 <b>Your Info:</b>\n"
-        f"• Name: {user.mention_html()}\n"
-        f"• ID: <code>{user.id}</code>\n"
-        f"• Current Warns in Group: <b>{warns}</b>"
-    )
+    info = f"👤 <b>Your Info:</b>\n• Name: {user.mention_html()}\n• ID: <code>{user.id}</code>\n• Warns: <b>{warns}</b>"
     await update.message.reply_text(info, parse_mode="HTML")
 
 # ----------------- SECURITY & AUTO MODERATION ----------------- #
@@ -1296,7 +1275,7 @@ def main():
     app.add_handler(MessageHandler(filters.Regex(r"(?i)^pip3?\s+install\s+"), auto_pip_installer))
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, security_moderator))
 
-    print("🛡 Group Help Security Bot running smoothly with full link generator & custom buttons...")
+    print("🛡 Group Help Security Bot running smoothly with exact /link collapse/expand flow...")
     app.run_polling()
 
 if __name__ == "__main__":
