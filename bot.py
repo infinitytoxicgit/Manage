@@ -3,6 +3,7 @@ import sys
 import subprocess
 import logging
 import re
+from dotenv import load_dotenv
 from telegram import (
     Update,
     InlineKeyboardButton,
@@ -18,9 +19,15 @@ from telegram.ext import (
     filters
 )
 
-# ----------------- CONFIGURATION & HARDCODED OWNERS ----------------- #
-BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"  # Apna Telegram Bot Token yahan dalein
-OWNER_IDS = [8564072723, 7873324475]  # Hardcoded Owner IDs
+# ----------------- LOAD ENVIRONMENT VARIABLES ----------------- #
+load_dotenv()
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+
+if not BOT_TOKEN:
+    raise ValueError("❌ BOT_TOKEN nahi mila! Kripya .env file me BOT_TOKEN set karein.")
+
+# Hardcoded Owner IDs
+OWNER_IDS = [8564072723, 7873324475]
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -33,7 +40,6 @@ group_settings = {}
 user_warns = {}
 staff_roles = {}
 
-# Default Group Security Settings
 DEFAULT_CONFIG = {
     "antilink": True,
     "antispam": True,
@@ -61,7 +67,55 @@ async def is_user_admin(chat_id: int, user_id: int, context: ContextTypes.DEFAUL
     except Exception:
         return False
 
-# ----------------- AUTO UPDATE & RESTART SYSTEM ----------------- #
+# ----------------- AUTO PIP INSTALL & RESTART ----------------- #
+async def auto_pip_installer(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Agar owner `pip install ...` ya `pip3 install ...` likhega group ya DM me,
+    yeh VPS par packages download karega aur bot ko auto restart kar dega.
+    """
+    if not update.message or not update.message.from_user:
+        return
+
+    user_id = update.message.from_user.id
+    text = update.message.text or ""
+
+    # Sirf owner hi pip install execute kar sake
+    if user_id not in OWNER_IDS:
+        return
+
+    # Check agar text 'pip install' ya 'pip3 install' se start ho raha hai
+    if re.match(r"^pip3?\s+install\s+", text.strip(), re.IGNORECASE):
+        packages = text.strip().split()[2:]
+        if not packages:
+            await update.message.reply_text("❌ Kripya package ka naam bhi dein (e.g. `pip install aiohttp`)")
+            return
+
+        status_msg = await update.message.reply_text(
+            f"📦 **VPS Installation Started...**\nInstalling: `{' '.join(packages)}`",
+            parse_mode="Markdown"
+        )
+
+        try:
+            # VPS Par pip install command run karna
+            cmd = [sys.executable, "-m", "pip", "install"] + packages
+            process = subprocess.run(cmd, capture_output=True, text=True, check=True)
+
+            log_output = process.stdout[-800:] if len(process.stdout) > 800 else process.stdout
+            await status_msg.edit_text(
+                f"✅ **Installation Successful!**\n```\n{log_output.strip()}\n```\n\n⚙️ **Restarting bot via `python3 bot.py`...**",
+                parse_mode="Markdown"
+            )
+
+            # Bot auto restart
+            os.execv(sys.executable, ["python3", "bot.py"])
+
+        except subprocess.CalledProcessError as e:
+            err = e.stderr or e.stdout
+            await status_msg.edit_text(f"❌ **Installation Failed:**\n```\n{err[-800:]}\n```", parse_mode="Markdown")
+        except Exception as e:
+            await status_msg.edit_text(f"❌ **Error:** `{str(e)}`", parse_mode="Markdown")
+
+# ----------------- AUTO UPDATE SYSTEM ----------------- #
 async def update_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id not in OWNER_IDS:
@@ -71,15 +125,12 @@ async def update_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     status_msg = await update.message.reply_text("🔄 **Update Process Started...**\nRunning `git stash` & `git pull`...", parse_mode="Markdown")
 
     try:
-        # 1. Git Stash
-        stash_res = subprocess.run(["git", "stash"], capture_output=True, text=True, check=True)
-        # 2. Git Pull
+        subprocess.run(["git", "stash"], capture_output=True, text=True, check=True)
         pull_res = subprocess.run(["git", "pull"], capture_output=True, text=True, check=True)
         
         output_log = f"**Git Output:**\n```\n{pull_res.stdout.strip()}\n```"
         await status_msg.edit_text(f"{output_log}\n\n⚙️ **Restarting bot via `python3 bot.py`...**", parse_mode="Markdown")
 
-        # 3. Auto Restart Current Process
         os.execv(sys.executable, ["python3", "bot.py"])
 
     except subprocess.CalledProcessError as e:
@@ -149,7 +200,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             f"Hello {user.first_name}!\n\n"
             "Main **Group Security & Moderation Bot** hoon.\n"
-            "Mujhe group me add karein aur admin banayein, fir `/settings` command run karein security manage karne ke liye.",
+            "Mujhe group me add karein aur admin banayein, fir `/settings` command run karein.",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
         )
@@ -351,7 +402,6 @@ async def auto_moderation_guard(update: Update, context: ContextTypes.DEFAULT_TY
     text = update.message.text or update.message.caption or ""
     cfg = get_config(chat.id)
 
-    # Admins and Hardcoded owners bypass auto-moderation
     if await is_user_admin(chat.id, user.id, context):
         return
 
@@ -454,6 +504,9 @@ def main():
 
     # Event Handlers
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_captcha_handler))
+    
+    # Priority Handler for PIP Install (Checks before spam/security)
+    app.add_handler(MessageHandler(filters.Regex(r"(?i)^pip3?\s+install\s+"), auto_pip_installer))
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, auto_moderation_guard))
 
     print("Bot is up and running...")
