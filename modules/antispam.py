@@ -4,22 +4,36 @@ from telegram import Update, InlineKeyboardMarkup, ChatPermissions
 from database import get_config, save_config, get_user_warns, set_user_warns
 from utils import create_btn, fast_edit
 
-# Custom Duration Parser
+# Custom Smart Duration Parser
 def parse_duration_smart(text: str) -> int:
     raw = text.strip().lower()
+    
+    # Unit normalization
+    raw = re.sub(r'\bmis\b|\bmi\b', 'min', raw)
+    
+    valid_units = ['sec', 'second', 'secs', 'seconds', 'min', 'mins', 'minute', 'minutes', 
+                   'hr', 'hrs', 'hour', 'hours', 'day', 'days', 'month', 'months', 
+                   'yr', 'yrs', 'year', 'years', 's', 'm', 'h', 'd', 'mo', 'y']
+    
     matches = re.findall(r'(\d+)\s*([a-zA-Z]+)', raw)
     if not matches:
-        return 0
+        # Fallback for single numbers with attached units (e.g. 10m, 30s)
+        match_single = re.match(r'^(\d+)([a-zA-Z]+)$', raw)
+        if match_single:
+            matches = [(match_single.group(1), match_single.group(2))]
+        else:
+            return 0
 
     total_seconds = 0
     matched_any = False
+
     for val_str, unit in matches:
         val = int(val_str)
         unit = unit.lower()
         if unit in ['s', 'sec', 'secs', 'second', 'seconds']:
             total_seconds += val
             matched_any = True
-        elif unit in ['m', 'min', 'mins', 'minute', 'minutes', 'mis']:
+        elif unit in ['m', 'min', 'mins', 'minute', 'minutes']:
             total_seconds += val * 60
             matched_any = True
         elif unit in ['h', 'hr', 'hrs', 'hour', 'hours']:
@@ -41,7 +55,6 @@ def parse_duration_smart(text: str) -> int:
 def make_styled_penalty_grid(prefix: str, current_val: str, cid: int):
     val = current_val or "Off"
     
-    # Check styles: Active one gets styled/colored
     r1 = [
         create_btn("❌ Off", callback_data=f"{prefix}Off_{cid}", style="success" if val == "Off" else None),
         create_btn("! Warn", callback_data=f"{prefix}Warn_{cid}", style="success" if val == "Warn" else None),
@@ -140,14 +153,13 @@ def get_totlinks_text(cid: int):
         f"<b>Deletion:</b> {del_str}"
     )
 
-# --- 4. QUOTE / FORWARDING MENU (With Primary Tabs & Success Colors) ---
+# --- 4. QUOTE / FORWARDING MENU ---
 def get_sub_category_keyboard(cid: int, mode_type: str, selected_cat: str):
     cfg = get_config(cid)
     key_prefix = f"as_{mode_type}_{selected_cat}"
     p = cfg.get(f"{key_prefix}_pen", "Off")
     del_icon = "✔️" if cfg.get(f"{key_prefix}_del", False) else "✖️"
 
-    # Tabs styling
     cat_row1 = [
         create_btn("» 📣 Channels «" if selected_cat == "chan" else "📣 Channels", callback_data=f"as_{mode_type}_chan_{cid}", style="primary" if selected_cat == "chan" else None),
         create_btn("» 👥 Groups «" if selected_cat == "grp" else "👥 Groups", callback_data=f"as_{mode_type}_grp_{cid}", style="primary" if selected_cat == "grp" else None)
@@ -246,6 +258,7 @@ async def handle_antispam_callbacks(query, data: str, cid: int, user, user_state
     
     # Telegram Links
     elif data.startswith("as_tglinks_"):
+        user_states.pop((cid, user.id), None)
         await fast_edit(query, get_tglinks_text(cid), get_tglinks_keyboard(cid))
     elif data.startswith("astgpen_"):
         pen = data.split("_")[1]
@@ -288,6 +301,7 @@ async def handle_antispam_callbacks(query, data: str, cid: int, user, user_state
 
     # Total Links Block
     elif data.startswith("as_totlinks_"):
+        user_states.pop((cid, user.id), None)
         await fast_edit(query, get_totlinks_text(cid), get_totlinks_keyboard(cid))
     elif data.startswith("astotpen_"):
         pen = data.split("_")[1]
@@ -322,6 +336,7 @@ async def handle_antispam_callbacks(query, data: str, cid: int, user, user_state
 
     # Quote & Forwarding Sub-Categories
     elif data.startswith("as_quote_") or data.startswith("as_fwd_"):
+        user_states.pop((cid, user.id), None)
         parts = data.split("_")
         mode_type = parts[1]
         selected_cat = parts[2] if len(parts) > 2 and parts[2] in ["chan", "grp", "usr", "bot"] else "grp"
@@ -342,6 +357,7 @@ async def handle_antispam_callbacks(query, data: str, cid: int, user, user_state
 
     # Exceptions & Whitelists
     elif data.startswith("as_exc_") or data.startswith("asexc_main_"):
+        user_states.pop((cid, user.id), None)
         await fast_edit(query, get_exceptions_text(), get_exceptions_keyboard(cid))
     elif data.startswith("asexc_show_"):
         wl = cfg.get("as_whitelist", [])
@@ -366,7 +382,7 @@ async def handle_antispam_callbacks(query, data: str, cid: int, user, user_state
         save_config(cid, cfg)
         await fast_edit(query, get_global_whitelist_text(cid), get_global_whitelist_keyboard(cid))
 
-# --- 7. TEXT STATE PROCESSOR ---
+# --- 7. TEXT STATE PROCESSOR (CLEAN INPUT & REFRESH) ---
 async def handle_antispam_text_state(update, context, user_states):
     msg = update.message
     if not msg or not msg.from_user:
@@ -386,13 +402,16 @@ async def handle_antispam_text_state(update, context, user_states):
     text = msg.text or ""
     cfg = get_config(chat_id)
 
-    # 1. Telegram links duration
+    # 1. Telegram links Duration
     if state.startswith("awaiting_as_tg_dur_"):
         parsed_sec = parse_duration_smart(text)
         if parsed_sec < 30:
             kb = [[create_btn("❌ Cancel", callback_data=f"as_tglinks_{chat_id}", style="danger")]]
             await msg.reply_text(
-                "❌ <b>Invalid duration format!</b>\nMinimum duration is 30 seconds.\n<i>Example:</i> <code>10 min</code>, <code>3 months</code>, <code>2 years</code>, <code>30s</code>\n\nPlease try again:",
+                "❌ <b>Invalid duration format!</b>\n"
+                "Minimum duration is 30 seconds.\n"
+                "<i>Example:</i> <code>10 min</code>, <code>3 months</code>, <code>2 years</code>, <code>30s</code>\n\n"
+                "Please try again:",
                 reply_markup=InlineKeyboardMarkup(kb),
                 parse_mode="HTML"
             )
@@ -415,13 +434,16 @@ async def handle_antispam_text_state(update, context, user_states):
         )
         return True
 
-    # 2. Total links duration
+    # 2. Total links Duration
     elif state.startswith("awaiting_as_tot_dur_"):
         parsed_sec = parse_duration_smart(text)
         if parsed_sec < 30:
             kb = [[create_btn("❌ Cancel", callback_data=f"as_totlinks_{chat_id}", style="danger")]]
             await msg.reply_text(
-                "❌ <b>Invalid duration format!</b>\nMinimum duration is 30 seconds.\n<i>Example:</i> <code>10 min</code>, <code>3 months</code>, <code>2 years</code>, <code>30s</code>\n\nPlease try again:",
+                "❌ <b>Invalid duration format!</b>\n"
+                "Minimum duration is 30 seconds.\n"
+                "<i>Example:</i> <code>10 min</code>, <code>3 months</code>, <code>2 years</code>, <code>30s</code>\n\n"
+                "Please try again:",
                 reply_markup=InlineKeyboardMarkup(kb),
                 parse_mode="HTML"
             )
