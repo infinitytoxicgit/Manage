@@ -302,7 +302,7 @@ async def me_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(info, parse_mode="HTML")
 
-# FULL ROBUST FORCE UPDATE COMMAND (Syncs modules & main.py completely)
+# FULL ROBUST FORCE UPDATE COMMAND (Fixed path execution)
 async def update_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in OWNER_IDS:
         return
@@ -311,13 +311,11 @@ async def update_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     repo_dir = Path(__file__).resolve().parent
 
     try:
-        # Clear local stash conflicts
         subprocess.run(["git", "stash", "--all"], cwd=repo_dir, capture_output=True, text=True)
         
         branch_proc = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=repo_dir, capture_output=True, text=True, check=True)
         active_branch = branch_proc.stdout.strip() or "main"
 
-        # Force reset entire repository including subfolders (modules/) to match origin
         subprocess.run(["git", "fetch", "--all", "--prune"], cwd=repo_dir, capture_output=True, text=True, check=True)
         subprocess.run(["git", "reset", "--hard", f"origin/{active_branch}"], cwd=repo_dir, capture_output=True, text=True, check=True)
         subprocess.run(["git", "clean", "-fd"], cwd=repo_dir, capture_output=True, text=True, check=True)
@@ -325,7 +323,6 @@ async def update_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         log_proc = subprocess.run(["git", "log", "-1", "--pretty=format:%s (%h)"], cwd=repo_dir, capture_output=True, text=True, check=True)
         latest_commit_msg = log_proc.stdout.strip()
 
-        # Clean python bytecode cache
         for pyc_dir in repo_dir.rglob("__pycache__"):
             shutil.rmtree(pyc_dir, ignore_errors=True)
 
@@ -337,7 +334,8 @@ async def update_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
 
-        os.execv(sys.executable, [sys.executable, str(repo_dir / "main.py")])
+        # Clean process restart using current python interpreter and main.py absolute path
+        os.execv(sys.executable, [sys.executable, os.path.abspath(__file__)])
 
     except Exception as e:
         await status_msg.edit_text(f"❌ **Update Failed:**\n```\n{str(e)}\n```", parse_mode="Markdown")
