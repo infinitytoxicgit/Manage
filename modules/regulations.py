@@ -1,6 +1,7 @@
 import urllib.parse
 import urllib.request
 import json
+import html
 from database import get_config, save_config
 from utils import (
     create_btn,
@@ -29,16 +30,15 @@ POPULAR_LANGUAGES = [
 ]
 
 def perform_google_translate(text: str, target_lang: str) -> str:
-    """Free, lightweight, zero-library Google translation engine."""
     try:
         url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl={target_lang}&dt=t&q={urllib.parse.quote(text)}"
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=5) as response:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+        with urllib.request.urlopen(req, timeout=6) as response:
             res = json.loads(response.read().decode("utf-8"))
             translated_pieces = [item[0] for item in res[0] if item and item[0]]
             return "".join(translated_pieces)
     except Exception as e:
-        return f"❌ Translation Error: {str(e)}"
+        return f"Translation error: {str(e)}"
 
 def get_translate_keyboard(target_uid: int, chat_id: int):
     keyboard = []
@@ -126,11 +126,11 @@ def get_cmd_permissions_keyboard(chat_id: int):
     return InlineKeyboardMarkup(keyboard)
 
 async def handle_regulations_callbacks(query, data: str, cid: int, user, chat, user_states, context):
-    # 1. TRANSLATION CALLBACK EXECUTION
+    # Translation click handling
     if data.startswith("trcancel_"):
         target_uid = int(data.split("_")[1])
         if user.id != target_uid:
-            await query.answer("Yeh button aapke liye nahi hai!", show_alert=True)
+            await query.answer("Yeh button sirf command sender ke liye hai!", show_alert=True)
             return
         TRANSLATE_CACHE.pop((chat.id, target_uid), None)
         await query.message.delete()
@@ -148,7 +148,7 @@ async def handle_regulations_callbacks(query, data: str, cid: int, user, chat, u
         cache_key = (chat.id, target_uid)
         orig_text = TRANSLATE_CACHE.pop(cache_key, None)
         if not orig_text:
-            await query.answer("Translation session expired. Please send /translate again.", show_alert=True)
+            await query.answer("Translation session expire ho gaya. Kripya fir se /translate karein.", show_alert=True)
             await query.message.delete()
             return
 
@@ -157,16 +157,16 @@ async def handle_regulations_callbacks(query, data: str, cid: int, user, chat, u
 
         out_msg = (
             f"🌐 <b>Translation ({lang_name}):</b>\n\n"
-            f"<blockquote>{translated_result}</blockquote>\n\n"
+            f"<blockquote>{html.escape(translated_result)}</blockquote>\n\n"
             f"<i>Original by {user.mention_html()}</i>"
         )
         await fast_edit(query, out_msg, None)
         return
 
-    # 2. ADMIN ONLY CHECK FOR REGULATIONS SETTINGS
+    # Admin check for settings
     if not await is_user_admin(cid, user.id, context):
         try:
-            await query.answer("❌ Aapke paas regulations change karne ki permission nahi hai!", show_alert=True)
+            await query.answer("❌ Sirf Admins regulations change kar sakte hain!", show_alert=True)
         except Exception:
             pass
         return
@@ -252,11 +252,7 @@ async def handle_regulations_callbacks(query, data: str, cid: int, user, chat, u
             "Send a message structured as follows:\n\n"
             "• <b>Single button:</b>\n<code>Button title - @username</code>\n\n"
             "• <b>Multiple on single line:</b>\n<code>Title 1 - @user1 && Title 2 - link2.com</code>\n\n"
-            "• <b>Multiple rows:</b>\n<code>Title 1 - link1.com\nTitle 2 - @user2</code>\n\n"
-            "<b>Special buttons:</b>\n"
-            "• Popup: <code>Title - popup: Text</code>\n"
-            "• Share: <code>Title - share: Text</code>\n"
-            "• Copy: <code>Title - copy: Text</code>"
+            "• <b>Multiple rows:</b>\n<code>Title 1 - link1.com\nTitle 2 - @user2</code>"
         )
         kb = [
             [create_btn("🚫 Remove Keyboard", callback_data=f"reg_rem_buttons_{cid}")],
