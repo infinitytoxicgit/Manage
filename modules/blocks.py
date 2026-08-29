@@ -273,6 +273,7 @@ async def handle_blocks_callbacks(query, data: str, cid: int, user, user_states)
 
     # Blacklist Section
     elif data.startswith("blk_menu_bl_"):
+        user_states.pop((cid, user.id), None)
         await fast_edit(query, get_blacklist_text(cid), get_blacklist_keyboard(cid))
     elif data.startswith("blktog_blmode_"):
         mode = data.split("_")[2]
@@ -282,6 +283,7 @@ async def handle_blocks_callbacks(query, data: str, cid: int, user, user_states)
 
     # Join Block Section
     elif data.startswith("blk_menu_join_"):
+        user_states.pop((cid, user.id), None)
         await fast_edit(query, get_joinblock_text(cid), get_joinblock_keyboard(cid))
     elif data.startswith("blkpen_join_"):
         cfg["blk_join_penalty"] = data.split("_")[2]
@@ -294,6 +296,7 @@ async def handle_blocks_callbacks(query, data: str, cid: int, user, user_states)
 
     # Leave Block Section
     elif data.startswith("blk_menu_leave_"):
+        user_states.pop((cid, user.id), None)
         await fast_edit(query, get_leaveblock_text(cid), get_leaveblock_keyboard(cid))
     elif data.startswith("blkpen_leave_"):
         cfg["blk_leave_penalty"] = data.split("_")[2]
@@ -301,7 +304,8 @@ async def handle_blocks_callbacks(query, data: str, cid: int, user, user_states)
         await fast_edit(query, get_leaveblock_text(cid), get_leaveblock_keyboard(cid))
 
     # Join-Leave Block Section
-    elif data.startswith("blk_menu_joinleave_"):
+    elif data.startswith("blk_menu_joinleave_") or data.startswith("blk_menu_jl_"):
+        user_states.pop((cid, user.id), None)
         await fast_edit(query, get_joinleave_text(cid), get_joinleave_keyboard(cid))
     elif data.startswith("blkpen_jl_"):
         cfg["blk_joinleave_penalty"] = data.split("_")[2]
@@ -309,7 +313,8 @@ async def handle_blocks_callbacks(query, data: str, cid: int, user, user_states)
         await fast_edit(query, get_joinleave_text(cid), get_joinleave_keyboard(cid))
 
     # Multiple Joins Section
-    elif data.startswith("blk_menu_multijoin_"):
+    elif data.startswith("blk_menu_multijoin_") or data.startswith("blk_menu_multi_"):
+        user_states.pop((cid, user.id), None)
         await fast_edit(query, get_multijoin_main_text(cid), get_multijoin_main_keyboard(cid))
     elif data.startswith("blkpen_multi_"):
         cfg["blk_multi_penalty"] = data.split("_")[2]
@@ -332,6 +337,7 @@ async def handle_blocks_callbacks(query, data: str, cid: int, user, user_states)
 
     # Block Adding Bots
     elif data.startswith("blk_menu_addbots_"):
+        user_states.pop((cid, user.id), None)
         await fast_edit(query, get_addbots_text(cid), get_addbots_keyboard(cid))
     elif data.startswith("blktog_addbots_"):
         cfg["blk_addbots_active"] = not cfg.get("blk_addbots_active", False)
@@ -352,8 +358,18 @@ async def handle_blocks_callbacks(query, data: str, cid: int, user, user_states)
             f"<b>Example of format:</b> 3 month 2 days 12 hours 4 minutes 34 seconds\n\n"
             f"<b>Current duration:</b> {current_dur or 'Off'}"
         )
+        
+        # Route back to exact submenu
+        back_map = {
+            "join": f"blk_menu_join_{cid}",
+            "leave": f"blk_menu_leave_{cid}",
+            "jl": f"blk_menu_joinleave_{cid}",
+            "multi": f"blk_menu_multijoin_{cid}"
+        }
+        back_callback = back_map.get(target_mod, f"cfg_mod_blocks_{cid}")
+
         kb = [
-            [create_btn("❌ Cancel", callback_data=f"blk_menu_{target_mod}_{cid}", style="danger")]
+            [create_btn("❌ Cancel", callback_data=back_callback, style="danger")]
         ]
         await fast_edit(query, text, InlineKeyboardMarkup(kb))
 
@@ -380,9 +396,18 @@ async def handle_blocks_text_state(update: Update, context, user_states):
     target_mod = parts[3]
     panel_msg_id = int(parts[-1]) if parts[-1].isdigit() else None
 
+    # Route back to exact submenu
+    back_map = {
+        "join": f"blk_menu_join_{chat_id}",
+        "leave": f"blk_menu_leave_{chat_id}",
+        "jl": f"blk_menu_joinleave_{chat_id}",
+        "multi": f"blk_menu_multijoin_{chat_id}"
+    }
+    back_callback = back_map.get(target_mod, f"cfg_mod_blocks_{chat_id}")
+
     parsed_sec, dur_str = parse_block_duration(text)
     if parsed_sec < 30:
-        kb = [[create_btn("❌ Cancel", callback_data=f"blk_menu_{target_mod}_{chat_id}", style="danger")]]
+        kb = [[create_btn("❌ Cancel", callback_data=back_callback, style="danger")]]
         await msg.reply_text(
             "❌ <b>Invalid duration format!</b>\n"
             "Minimum duration is 30 seconds.\n"
@@ -403,8 +428,8 @@ async def handle_blocks_text_state(update: Update, context, user_states):
     except Exception:
         pass
 
-    # Exact confirmation screen
-    kb = [[create_btn("⬅️ Back", callback_data=f"blk_menu_{target_mod}_{chat_id}")]]
+    # Exact confirmation screen with functional Back button
+    kb = [[create_btn("⬅️ Back", callback_data=back_callback)]]
     if panel_msg_id:
         try:
             await context.bot.edit_message_text(
