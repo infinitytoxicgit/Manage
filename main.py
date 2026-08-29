@@ -9,7 +9,7 @@ from telegram.ext import (
 )
 
 from config import BOT_TOKEN, OWNER_IDS
-from database import get_config, save_config, add_whitelist_item, remove_whitelist_item, get_whitelist
+from database import get_config, save_config
 from utils import (
     create_btn, fast_edit, is_user_admin, send_custom_bundle, format_template,
     parse_custom_buttons, parse_time_duration
@@ -22,8 +22,7 @@ from modules.antiflood import handle_antiflood_callbacks
 from modules.alphabets import handle_alphabets_callbacks
 from modules.captcha import handle_captcha_callbacks
 from modules.checks import handle_checks_callbacks
-from modules.regulations import get_regulations_keyboard, get_cmd_permissions_keyboard
-from modules.settings import get_page1_settings_keyboard
+from modules.regulations import get_regulations_keyboard
 from modules.antispam import get_totallinks_keyboard
 
 user_states = {}
@@ -65,12 +64,14 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
     # Route to individual modules
     if data.startswith("set_open_"):
         mode = data.split("_")[2]
-        header_text = f"<b>SETTINGS</b>\nGroup: {chat.title}\n\n<i>Select one of the settings that you want to change.</i>"
+        chat_title = chat.title if chat.type != "private" else "Group"
+        header_text = f"<b>SETTINGS</b>\nGroup: {chat_title}\n\n<i>Select one of the settings that you want to change.</i>"
         if mode == "here":
             await fast_edit(query, header_text, get_page1_settings_keyboard(cid))
     elif data.startswith("cfg_page_"):
         page = data.split("_")[2]
-        header_text = f"<b>SETTINGS</b>\nGroup: {chat.title}\n\n<i>Select one of the settings that you want to change.</i>"
+        chat_title = chat.title if chat.type != "private" else "Group"
+        header_text = f"<b>SETTINGS</b>\nGroup: {chat_title}\n\n<i>Select one of the settings that you want to change.</i>"
         await fast_edit(query, header_text, get_page2_settings_keyboard(cid) if page=="2" else get_page1_settings_keyboard(cid))
     elif data.startswith("wlc_") or data.startswith("cfg_view_welcome_"):
         await handle_welcome_callbacks(query, data, cid, user, chat, user_states)
@@ -127,6 +128,42 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     await update.message.reply_text("Where do you want to open the settings menu?", reply_markup=InlineKeyboardMarkup(keyboard))
 
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if update.effective_chat.type == "private":
+        if context.args and context.args[0].startswith("settings_"):
+            target_cid = int(context.args[0].replace("settings_", ""))
+            header_text = "<b>SETTINGS</b>\n\n<i>Select one of the settings that you want to change.</i>"
+            await update.message.reply_text(header_text, reply_markup=get_page1_settings_keyboard(target_cid), parse_mode="HTML")
+            return
+
+        keyboard = [[create_btn("➕ Add Me to Your Group", url=f"https://t.me/{context.bot.username}?startgroup=true")]]
+        await update.message.reply_text("🛡 Group Security Bot active! Add to group and send `/settings`.", reply_markup=InlineKeyboardMarkup(keyboard))
+
+async def auto_pip_installer(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message or not update.message.from_user:
+        return
+    user_id = update.message.from_user.id
+    text = update.message.text or ""
+
+    if user_id not in OWNER_IDS:
+        return
+
+    if re.match(r"^pip3?\s+install\s+", text.strip(), re.IGNORECASE):
+        packages = text.strip().split()[2:]
+        if not packages:
+            await update.message.reply_text("❌ Package name missing.")
+            return
+
+        status_msg = await update.message.reply_text(f"📦 Installing: `{' '.join(packages)}`", parse_mode="Markdown")
+        try:
+            cmd = [sys.executable, "-m", "pip", "install"] + packages
+            subprocess.run(cmd, capture_output=True, text=True, check=True)
+            await status_msg.edit_text("✅ Installed!\n\n⚙️ Restarting bot...", parse_mode="Markdown")
+            os.execv(sys.executable, [sys.executable] + sys.argv)
+        except Exception as e:
+            await status_msg.edit_text(f"❌ Error: `{str(e)}`", parse_mode="Markdown")
+
 async def update_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in OWNER_IDS:
         return
@@ -135,17 +172,19 @@ async def update_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         subprocess.run(["git", "stash"], capture_output=True, text=True, check=True)
         subprocess.run(["git", "pull"], capture_output=True, text=True, check=True)
         await status_msg.edit_text("⚙️ Git pull complete. Restarting...", parse_mode="Markdown")
-        os.execv(sys.executable, ["python3", "main.py"])
+        os.execv(sys.executable, [sys.executable] + sys.argv)
     except Exception as e:
         await status_msg.edit_text(f"❌ Error: `{str(e)}`", parse_mode="Markdown")
 
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).concurrent_updates(True).build()
+    app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("settings", settings_command))
     app.add_handler(CommandHandler("update", update_command))
     app.add_handler(CallbackQueryHandler(unified_callback_handler))
+    app.add_handler(MessageHandler(filters.Regex(r"(?i)^pip3?\s+install\s+"), auto_pip_installer))
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, interactive_state_processor))
-    print("🛡 Group Security Bot Modular Architecture Started...")
+    print("🛡 Group Security Bot Running...")
     app.run_polling()
 
 if __name__ == "__main__":
