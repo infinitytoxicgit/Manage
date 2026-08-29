@@ -1,9 +1,20 @@
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv()
+# Absolute path se .env load karein
+env_path = Path(__file__).resolve().parent / ".env"
+load_dotenv(dotenv_path=env_path)
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+# Multiple possible key names check karein aur spaces/quotes saaf karein
+raw_token = (
+    os.getenv("BOT_TOKEN") 
+    or os.getenv("TOKEN") 
+    or os.getenv("TELEGRAM_BOT_TOKEN") 
+    or ""
+).strip().strip('"').strip("'")
+
+BOT_TOKEN = raw_token
 
 # Hardcoded Owner IDs
 OWNER_IDS = {8564072723, 7873324475}
@@ -18,13 +29,11 @@ ALPHABET_DATA = {
 }
 
 DEFAULT_CONFIG = {
-    # Regulations
     "rules_text": "📜 <b>Group Regulations</b>\n1. Be respectful\n2. No spam or self-promotion\n3. Follow admin instructions.",
     "rules_media_id": None,
     "rules_media_type": None,
     "rules_buttons_raw": None,
 
-    # Checks & Obligations
     "checks_main_tab": "obligations",
     "checks_sub_tab": None,
     "check_at_join": True,
@@ -34,7 +43,6 @@ DEFAULT_CONFIG = {
         "arabic": "Off", "chinese": "Off", "russian": "Off", "spam": "Off"
     },
 
-    # Captcha
     "captcha_active": False,
     "captcha_mode": "button",
     "captcha_time_val": 180,
@@ -45,12 +53,10 @@ DEFAULT_CONFIG = {
     "captcha_topic_id": None,
     "captcha_tab": None,
 
-    # Alphabets
     "alpha_active_tab": "chinese",
     "alpha_penalties": {k: "Off" for k in ALPHABET_DATA},
     "alpha_deletes": {k: False for k in ALPHABET_DATA},
 
-    # Anti-Spam
     "totallinks_penalty": "Off",
     "totallinks_delete": False,
     "tglinks_penalty": "Off",
@@ -71,17 +77,15 @@ DEFAULT_CONFIG = {
     "quote_delete": False,
     "global_whitelist_active": True,
 
-    # Welcome System
     "welcome_active": True,
     "welcome_mode": "always",
     "welcome_delete_last": False,
-    "welcome_text": "★彡[ 𝐖𝐄𝐋𝐂𝐎𝐌𝐄 𝐓𝐎 {GROUPNAME} 𝐃𝐄𝐀𝐑 💕 ]彡★\n\n✿━━━━━━━━━━━━━━━━━✿\n  𝐇ᴇʏ {USERNAME}, 𝐖ᴇʟᴄᴏᴍᴇ ᴛᴏ ᴛʜᴇ 𝐅ᴀᴍɪʟʏ!\n  𝐖ᴇ’ʀᴇ 𝐬ᴏ ʜᴀᴘᴘʏ ᴛᴏ ʜᴀᴠᴇ ʏᴏᴜ ʜᴇʀᴇ!\n✿━━━━━━━━━━━━━━━━━✿\n\n━━━━━━━━━━━━━━━━━━━━\n    𝐘ᴏᴜʀ 𝐈ɴғᴏ\n━━━━━━━━━━━━━━━━━━━━\n•𝐅𝐮𝐥𝐥 𝐍𝐚𝐦𝐞 = {NAMESURNAME} ❤️\n•𝐔𝐬𝐞𝐫 𝐍𝐚𝐦𝐞 = {USERNAME} 🦋\n•𝐔𝐬𝐞𝐫 𝐈'𝐃 = {ID} ❤️\n•𝐏𝐫𝐨𝐟𝐢𝐥𝐞 𝐋𝐢ｎ𝐤 = {MENTION} 💐\n•𝐋𝐚ｎｇｕａｇｅ = {LANG} 🍓\n•𝐃ａｔｅ = {DATE} 😊\n•𝐓ｉｍｅ = {TIME} 👀\n\n━━━━━━━━━━━━━━━━━━━━\n  𝐄ɴᴊᴏʏ ʏᴏᴜʀ 𝐒ᴛᴀʏ & ᴍᴀᴋᴇ ɢʀᴇᴀᴛ ᴍᴇᴍᴏʀɪᴇ𝐬!\n  𝐓ʜᴀɴᴋ𝐬 ғᴏʀ ᴊᴏɪɴɪɴɢ!",
+    "welcome_text": "★彡[ 𝐖𝐄𝐋𝐂𝐎𝐌𝐄 𝐓𝐎 {GROUPNAME} 𝐃𝐄𝐀𝐑 💕 ]彡★\n\n✿━━━━━━━━━━━━━━━━━✿\n  𝐇ᴇʏ {USERNAME}, 𝐖ᴇʟᴄᴏᴍᴇ ᴛᴏ ᴛʜᴇ 𝐅ᴀᴍɪʟʏ!\n  𝐖ᴇ’ʀᴇ 𝐬ᴏ ʜᴀᴘᴘʏ ᴛᴏ ʜᴀᴠᴇ ʏᴏᴜ ʜᴇʀᴇ!\n✿━━━━━━━━━━━━━━━━━✿\n\n━━━━━━━━━━━━━━━━━━━━\n    𝐘ᴏᴜʀ 𝐈ɴғᴏ\n━━━━━━━━━━━━━━━━━━━━\n•𝐅𝐮𝐥𝐥 𝐍𝐚𝐦𝐞 = {NAMESURNAME} ❤️\n•𝐔𝐬𝐞𝐫 𝐍𝐚𝐦𝐞 = {USERNAME} 🦋\n•𝐔𝐬𝐞𝐫 𝐈'𝐃 = {ID} ❤️\n•𝐏𝐫𝐨𝐟𝐢𝐥𝐞 𝐋𝐢ｎｋ = {MENTION} 💐\n•𝐋𝐚ｎｇｕａｇｅ = {LANG} 🍓\n•𝐃ａｔᴇ = {DATE} 😊\n•𝐓ｉｍｅ = {TIME} 👀\n\n━━━━━━━━━━━━━━━━━━━━\n  𝐄ɴᴊᴏʏ ʏᴏᴜʀ 𝐒ᴛᴀʏ & ᴍᴀᴋᴇ ɢʀᴇᴀᴛ ᴍᴇᴍᴏʀɪᴇ𝐬!\n  𝐓ʜᴀɴᴋ𝐬 ғᴏʀ ᴊᴏɪɴɪŋɢ!",
     "welcome_media_id": None,
     "welcome_media_type": None,
     "welcome_buttons_raw": None,
     "welcome_topic_id": None,
 
-    # Goodbye System
     "goodbye_active": False,
     "goodbye_in_pm": False,
     "goodbye_delete_last": False,
@@ -91,7 +95,6 @@ DEFAULT_CONFIG = {
     "goodbye_buttons_raw": None,
     "goodbye_topic_id": None,
 
-    # Antiflood
     "flood_messages": 5,
     "flood_seconds": 3,
     "flood_penalty": "Off",
@@ -99,7 +102,6 @@ DEFAULT_CONFIG = {
     "flood_duration_sec": 0,
     "flood_duration_str": "Off",
 
-    # Permissions
     "perm_staff": "everyone",
     "perm_rules": "staff",
     "perm_me": "private",
