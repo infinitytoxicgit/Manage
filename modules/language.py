@@ -41,11 +41,8 @@ LANGUAGES = [
 
 def get_language_keyboard(cid: int):
     kb = []
-    
-    # English full width top button
     kb.append([create_btn("🇬🇧 English", callback_data=f"setlang_en_{cid}")])
     
-    # Rest languages in 2 columns grid
     row = []
     for code, label in LANGUAGES[1:]:
         row.append(create_btn(label, callback_data=f"setlang_{code}_{cid}"))
@@ -55,9 +52,8 @@ def get_language_keyboard(cid: int):
     if row:
         kb.append(row)
 
-    # Bottom Actions
     kb.append([create_btn("🌍 Time Zone", callback_data=f"ngt_tz_menu_{cid}")])
-    kb.append([create_btn("⬅️ Back", callback_data=f"cfg_page_1_{cid}")] )
+    kb.append([create_btn("⬅️ Back", callback_data=f"cfg_page_1_{cid}")])
     return InlineKeyboardMarkup(kb)
 
 def get_language_text():
@@ -69,12 +65,10 @@ def get_language_text():
 async def handle_language_callbacks(query, data: str, cid: int, user, user_states):
     cfg = get_config(cid)
 
-    # 1. Open Languages Menu
     if data.startswith("cfg_mod_lang_") or data.startswith("cfg_lang_") or data.startswith("lang_menu_"):
         await fast_edit(query, get_language_text(), get_language_keyboard(cid))
 
-    # 2. Set Language Action
-    elif data.startswith("set_lang_") or data.startswith("setlang_"):
+    elif data.startswith("setlang_") or data.startswith("set_lang_"):
         code = data.split("_")[1]
         cfg["bot_lang"] = code
         save_config(cid, cfg)
@@ -82,7 +76,6 @@ async def handle_language_callbacks(query, data: str, cid: int, user, user_state
         selected_label = next((lbl for c, lbl in LANGUAGES if c == code), "English 🇬🇧")
         msg_text = f"Ok, from now on I'll speak {selected_label}"
 
-        # Action Buttons after setting language (Settings & Time Zone)
         kb = [
             [create_btn("⚙️ Settings", callback_data=f"cfg_page_1_{cid}")],
             [create_btn("🌍 Time Zone", callback_data=f"ngt_tz_menu_{cid}")]
