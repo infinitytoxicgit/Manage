@@ -25,6 +25,7 @@ from modules.welcome import handle_welcome_callbacks
 from modules.goodbye import handle_goodbye_callbacks
 from modules.antiflood import handle_antiflood_callbacks, handle_antiflood_text_state
 from modules.antispam import handle_antispam_callbacks, handle_antispam_text_state, inspect_antispam_message
+from modules.admin_report import handle_admin_report_callbacks, handle_report_command
 from modules.alphabets import handle_alphabets_callbacks
 from modules.captcha import handle_captcha_callbacks
 from modules.checks import handle_checks_callbacks
@@ -146,6 +147,7 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
         or data.startswith("astg") 
         or data.startswith("astot") 
         or data.startswith("assub") 
+        or data.startswith("asdel")
         or data.startswith("asexc") 
         or data.startswith("cfg_view_antispam_") 
         or data.startswith("cfg_view_spam_") 
@@ -153,6 +155,18 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
         or data.startswith("aspam_")
     ):
         await handle_antispam_callbacks(query, data, cid, user, user_states)
+    elif (
+        data.startswith("cfg_view_admincmd_") 
+        or data.startswith("cfg_view_admin_") 
+        or data.startswith("cfg_view_report_") 
+        or data.startswith("rep_") 
+        or data.startswith("reptgt_") 
+        or data.startswith("reptog_") 
+        or data.startswith("repadm") 
+        or data.startswith("repadv")
+        or data.startswith("represolve_")
+    ):
+        await handle_admin_report_callbacks(query, data, cid, user, user_states, context)
     elif data.startswith("alp") or data.startswith("cfg_view_alphabets_"):
         await handle_alphabets_callbacks(query, data, cid)
     elif data.startswith("cpt_") or data.startswith("cfg_view_captcha_"):
@@ -167,8 +181,14 @@ async def interactive_state_processor(update: Update, context: ContextTypes.DEFA
     chat_id = update.effective_chat.id
     user_id = update.message.from_user.id
     state_key = (chat_id, user_id)
+    text = update.message.text or update.message.caption or ""
 
-    # 1. State Handlers
+    # 1. Trigger for @admin command
+    if "@admin" in text.lower() or text.startswith("/report") or text.startswith("/admin"):
+        await handle_report_command(update, context)
+        return True
+
+    # 2. State Input Handling
     if state_key in user_states:
         if not await is_user_admin(chat_id, user_id, context):
             user_states.pop(state_key, None)
@@ -186,7 +206,6 @@ async def interactive_state_processor(update: Update, context: ContextTypes.DEFA
 
         cfg = get_config(chat_id)
         msg = update.message
-        text = msg.text or msg.caption or ""
 
         if state == "awaiting_reg_text":
             user_states.pop(state_key, None)
@@ -228,7 +247,7 @@ async def interactive_state_processor(update: Update, context: ContextTypes.DEFA
             await msg.reply_text(f"<code>{html.escape(text)}</code>", reply_markup=InlineKeyboardMarkup(final_kb), parse_mode="HTML")
             return True
 
-    # 2. Inspect Message for Anti-Spam Checking in Groups
+    # 3. Inspect Group Messages for Anti-Spam
     await inspect_antispam_message(update, context)
     return False
 
@@ -377,6 +396,8 @@ def main():
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("settings", settings_command))
     app.add_handler(CommandHandler("rules", rules_command))
+    app.add_handler(CommandHandler("report", handle_report_command))
+    app.add_handler(CommandHandler("admin", handle_report_command))
     app.add_handler(CommandHandler("translate", translate_command))
     app.add_handler(CommandHandler("staff", staff_command))
     app.add_handler(CommandHandler("me", me_command))
