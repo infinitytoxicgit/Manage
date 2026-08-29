@@ -22,7 +22,7 @@ def get_antiflood_text(chat_id: int):
     p = cfg.get("flood_penalty", "Off")
     punishment_display = "Deletion" if (p == "Off" and cfg.get("flood_delete")) else p
     dur_str = cfg.get("flood_duration_str", "Off")
-    
+
     return (
         "🗣 <b>Antiflood</b>\n"
         "From this menu you can set a punishment for those who send many messages in a short time.\n\n"
@@ -33,12 +33,13 @@ def get_antiflood_text(chat_id: int):
     )
 
 async def handle_antiflood_callbacks(query, data: str, cid: int, user, user_states):
+    # Fetch exact group configuration from SQLite database (persistent across restarts)
     cfg = get_config(cid)
-    
+
     if data.startswith("cfg_view_flood_"):
         user_states.pop((cid, user.id), None)
         await fast_edit(query, get_antiflood_text(cid), get_antiflood_main_keyboard(cid))
-        
+
     elif data.startswith("flgrid_"):
         mode = data.split("_")[1]
         numbers = [2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 20]
@@ -53,7 +54,7 @@ async def handle_antiflood_callbacks(query, data: str, cid: int, user, user_stat
         kb.append([create_btn("⬅️ Back", callback_data=f"cfg_view_flood_{cid}")])
         title = "select the maximum amount of sendable messages" if mode=="msg" else "select the time interval considered to calculate the antiflood"
         await fast_edit(query, f"From here you can {title}.", InlineKeyboardMarkup(kb))
-        
+
     elif data.startswith("flval_"):
         mode, val = data.split("_")[1], int(data.split("_")[2])
         if mode == "msg":
@@ -62,17 +63,17 @@ async def handle_antiflood_callbacks(query, data: str, cid: int, user, user_stat
             cfg["flood_seconds"] = val
         save_config(cid, cfg)
         await handle_antiflood_callbacks(query, f"cfg_view_flood_{cid}", cid, user, user_states)
-        
+
     elif data.startswith("flpen_"):
         cfg["flood_penalty"] = data.split("_")[1]
         save_config(cid, cfg)
         await handle_antiflood_callbacks(query, f"cfg_view_flood_{cid}", cid, user, user_states)
-        
+
     elif data.startswith("fltog_del_"):
         cfg["flood_delete"] = not cfg.get("flood_delete", True)
         save_config(cid, cfg)
         await handle_antiflood_callbacks(query, f"cfg_view_flood_{cid}", cid, user, user_states)
-        
+
     elif data.startswith("flset_dur_"):
         ptype = data.split("_")[2]
         user_states[(cid, user.id)] = f"awaiting_flood_dur_{ptype}"
@@ -80,7 +81,7 @@ async def handle_antiflood_callbacks(query, data: str, cid: int, user, user_stat
         text = (
             f"Send now the duration of the chosen punishment ({ptype})\n\n"
             f"<b>Minimum:</b> 30 seconds\n<b>Maximum:</b> 365 days\n\n"
-            f"<b>Example of format:</b> 3 month 2 days 12 hours 4 minutes 34 seconds\n\n"
+            f"<b>Example of format:</b> 10 min, 3 months, 2 years, 30s\n\n"
             f"<b>Current duration:</b> {dur_str}"
         )
         kb = [
@@ -88,7 +89,7 @@ async def handle_antiflood_callbacks(query, data: str, cid: int, user, user_stat
             [create_btn("❌ Cancel", callback_data=f"cfg_view_flood_{cid}", style="danger")]
         ]
         await fast_edit(query, text, InlineKeyboardMarkup(kb))
-        
+
     elif data.startswith("flrem_dur_"):
         cfg["flood_duration_sec"] = 0
         cfg["flood_duration_str"] = "Off"
