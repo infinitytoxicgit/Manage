@@ -1,7 +1,6 @@
-import urllib.parse
-import urllib.request
-import json
+import httpx
 import html
+import logging
 from database import get_config, save_config
 from utils import (
     create_btn,
@@ -12,6 +11,9 @@ from utils import (
     is_user_admin
 )
 
+logger = logging.getLogger(__name__)
+
+# Translation memory cache: {(chat_id, user_id): "original text"}
 TRANSLATE_CACHE = {}
 
 POPULAR_LANGUAGES = [
@@ -29,16 +31,31 @@ POPULAR_LANGUAGES = [
     ("🇹🇷 Turkish", "tr")
 ]
 
-def perform_google_translate(text: str, target_lang: str) -> str:
-    try:
-        url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl={target_lang}&dt=t&q={urllib.parse.quote(text)}"
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
-        with urllib.request.urlopen(req, timeout=6) as response:
-            res = json.loads(response.read().decode("utf-8"))
-            translated_pieces = [item[0] for item in res[0] if item and item[0]]
-            return "".join(translated_pieces)
-    except Exception as e:
-        return f"Translation error: {str(e)}"
+async def perform_google_translate_async(text: str, target_lang: str) -> str:
+    """Async Google translate client with proper fallback."""
+    url = "https://translate.googleapis.com/translate_a/single"
+    params = {
+        "client": "gtx",
+        "sl": "auto",
+        "tl": target_lang,
+        "dt": "t",
+        "q": text
+    }
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    }
+    
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        try:
+            resp = await client.get(url, params=params, headers=headers)
+            if resp.status_code == 200:
+                data = resp.json()
+                translated = "".join([piece[0] for piece in data[0] if piece and piece[0]])
+                return translated
+            return f"❌ Translation API returned status {resp.status_code}"
+        except Exception as e:
+            logger.error(f"Translation network error: {e}")
+            return f"❌ Translation Failed: {str(e)}"
 
 def get_translate_keyboard(target_uid: int, chat_id: int):
     keyboard = []
@@ -47,7 +64,7 @@ def get_translate_keyboard(target_uid: int, chat_id: int):
         for name, code in POPULAR_LANGUAGES[i:i+2]:
             row.append(create_btn(name, callback_data=f"trset_{code}_{target_uid}_{chat_id}"))
         keyboard.append(row)
-    keyboard.append([create_btn("❌ Cancel", callback_data=f"trcancel_{target_uid}")])
+    keyboard.append([create_btn("❌ Cancel", callback_data=f"trcancel_{target_uid}_{chat_id}")])
     return InlineKeyboardMarkup(keyboard)
 
 def get_regulations_text(chat_id: int):
@@ -126,14 +143,18 @@ def get_cmd_permissions_keyboard(chat_id: int):
     return InlineKeyboardMarkup(keyboard)
 
 async def handle_regulations_callbacks(query, data: str, cid: int, user, chat, user_states, context):
-    # Translation click handling
+    # 1. TRANSLATION ACTIONS
     if data.startswith("trcancel_"):
-        target_uid = int(data.split("_")[1])
-        if user.id != target_uid:
-            await query.answer("Yeh button sirf command sender ke liye hai!", show_alert=True)
+        parts = data.split("_")
+        target_uid = int(parts[1])
+        if user.id != target_uid and not await is_user_admin(cid, user.id, context):
+            await query.answer("Sirf command send karne wala cancel kar sakta hai!", show_alert=True)
             return
         TRANSLATE_CACHE.pop((chat.id, target_uid), None)
-        await query.message.delete()
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
         return
 
     if data.startswith("trset_"):
@@ -141,18 +162,22 @@ async def handle_regulations_callbacks(query, data: str, cid: int, user, chat, u
         lang_code = parts[1]
         target_uid = int(parts[2])
 
-        if user.id != target_uid:
-            await query.answer("Sirf command send karne wala user language select kar sakta hai!", show_alert=True)
+        if user.id != target_uid and not await is_user_admin(cid, user.id, context):
+            await query.answer("Sirf command sender language choose kar sakta hai!", show_alert=True)
             return
 
         cache_key = (chat.id, target_uid)
         orig_text = TRANSLATE_CACHE.pop(cache_key, None)
         if not orig_text:
-            await query.answer("Translation session expire ho gaya. Kripya fir se /translate karein.", show_alert=True)
-            await query.message.delete()
+            await query.answer("Translation session expire ho gaya. Kripya dobara /translate karein.", show_alert=True)
+            try:
+                await query.message.delete()
+            except Exception:
+                pass
             return
 
-        translated_result = perform_google_translate(orig_text, lang_code)
+        await query.answer("Translating...")
+        translated_result = await perform_google_translate_async(orig_text, lang_code)
         lang_name = dict(map(reversed, [(k, v) for v, k in POPULAR_LANGUAGES])).get(lang_code, lang_code.upper())
 
         out_msg = (
@@ -163,7 +188,7 @@ async def handle_regulations_callbacks(query, data: str, cid: int, user, chat, u
         await fast_edit(query, out_msg, None)
         return
 
-    # Admin check for settings
+    # 2. ADMIN SETTINGS ACTIONS
     if not await is_user_admin(cid, user.id, context):
         try:
             await query.answer("❌ Sirf Admins regulations change kar sakte hain!", show_alert=True)
