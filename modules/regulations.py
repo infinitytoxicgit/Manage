@@ -38,13 +38,26 @@ POPULAR_LANGUAGES = [
 
 def perform_google_translate_sync(text: str, target_lang: str) -> str:
     try:
-        url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl={target_lang}&dt=t&q={urllib.parse.quote(text)}"
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        # Using alternative public translation endpoints to bypass 429 Rate Limits
+        url = f"https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl=auto&tl={target_lang}&q={urllib.parse.quote(text)}"
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
         with urllib.request.urlopen(req, timeout=5) as response:
             res = json.loads(response.read().decode("utf-8"))
-            return "".join([item[0] for item in res[0] if item and item[0]])
+            if isinstance(res, list) and len(res) > 0:
+                return "".join([str(item) for item in res if item])
+            elif isinstance(res, dict) and "sentences" in res:
+                return "".join([s.get("trans", "") for s in res["sentences"]])
+            return str(res)
     except Exception as e:
-        return f"Error: {str(e)}"
+        # Fallback to secondary endpoint if primary hits 429
+        try:
+            url2 = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl={target_lang}&dt=t&q={urllib.parse.quote(text)}"
+            req2 = urllib.request.Request(url2, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req2, timeout=5) as resp2:
+                res2 = json.loads(resp2.read().decode("utf-8"))
+                return "".join([item[0] for item in res2[0] if item and item[0]])
+        except Exception as err:
+            return f"Translation service busy (429 Limit). Please try again in a few seconds."
 
 def get_translate_keyboard(target_uid: int, chat_id: int):
     keyboard = []
