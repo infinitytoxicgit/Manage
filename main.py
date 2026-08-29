@@ -31,6 +31,7 @@ from modules.admin_report import handle_report_command, handle_report_resolve_ca
 from modules.blocks import handle_blocks_callbacks, handle_blocks_text_state
 from modules.media_block import handle_media_callbacks, handle_media_text_state, inspect_media_message
 from modules.warns import handle_warns_callbacks, handle_warns_text_state
+from modules.night import handle_night_callbacks, handle_night_text_state, inspect_night_message
 from modules.alphabets import handle_alphabets_callbacks
 from modules.captcha import handle_captcha_callbacks
 from modules.checks import handle_checks_callbacks
@@ -214,6 +215,16 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
         or data.startswith("wrnset_dur_")
     ):
         await handle_warns_callbacks(query, data, cid, user, user_states)
+    elif (
+        data.startswith("cfg_mod_night_")
+        or data.startswith("cfg_view_night_")
+        or data.startswith("ngt_")
+        or data.startswith("ngtset_")
+        or data.startswith("ngttog_")
+        or data.startswith("ngtval_")
+        or data.startswith("ngttz_")
+    ):
+        await handle_night_callbacks(query, data, cid, user, user_states, context)
     elif data.startswith("alp") or data.startswith("cfg_view_alphabets_"):
         await handle_alphabets_callbacks(query, data, cid)
     elif data.startswith("cpt_") or data.startswith("cfg_view_captcha_"):
@@ -263,6 +274,10 @@ async def interactive_state_processor(update: Update, context: ContextTypes.DEFA
         if state and state.startswith("awaiting_wrn_dur_"):
             return await handle_warns_text_state(update, context, user_states)
 
+        # Route to Night Mode Timezone State
+        if state and state.startswith("awaiting_ngt_tz_loc_"):
+            return await handle_night_text_state(update, context, user_states)
+
         cfg = get_config(chat_id)
         msg = update.message
 
@@ -307,6 +322,9 @@ async def interactive_state_processor(update: Update, context: ContextTypes.DEFA
             return True
 
     # 3. Live Group Message Inspectors
+    if await inspect_night_message(update, context):
+        return True
+
     if await inspect_antispam_message(update, context):
         return True
 
@@ -338,11 +356,18 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if update.effective_chat.type == "private":
-        if context.args and context.args[0].startswith("settings_"):
-            target_cid = int(context.args[0].replace("settings_", ""))
-            header_text = "<b>SETTINGS</b>\n\n<i>Select one of the settings that you want to change.</i>"
-            await update.message.reply_text(header_text, reply_markup=get_page1_settings_keyboard(target_cid), parse_mode="HTML")
-            return
+        if context.args:
+            arg = context.args[0]
+            if arg.startswith("settings_"):
+                target_cid = int(arg.replace("settings_", ""))
+                header_text = "<b>SETTINGS</b>\n\n<i>Select one of the settings that you want to change.</i>"
+                await update.message.reply_text(header_text, reply_markup=get_page1_settings_keyboard(target_cid), parse_mode="HTML")
+                return
+            elif arg.startswith("tzset_"):
+                target_cid = int(arg.replace("tzset_", ""))
+                from modules.night import get_timezone_text, get_timezone_keyboard
+                await update.message.reply_text(get_timezone_text(target_cid), reply_markup=get_timezone_keyboard(target_cid, in_pm=True), parse_mode="HTML")
+                return
 
         keyboard = [[create_btn("➕ Add Me to Your Group", url=f"https://t.me/{context.bot.username}?startgroup=true")]]
         await update.message.reply_text("🛡 Group Security Bot active! Add to group and send `/settings`.", reply_markup=InlineKeyboardMarkup(keyboard))
