@@ -30,6 +30,7 @@ from modules.antispam import handle_antispam_callbacks, handle_antispam_text_sta
 from modules.admin_report import handle_report_command, handle_report_resolve_callback
 from modules.blocks import handle_blocks_callbacks, handle_blocks_text_state
 from modules.media_block import handle_media_callbacks, handle_media_text_state, inspect_media_message
+from modules.warns import handle_warns_callbacks, handle_warns_text_state
 from modules.alphabets import handle_alphabets_callbacks
 from modules.captcha import handle_captcha_callbacks
 from modules.checks import handle_checks_callbacks
@@ -204,6 +205,15 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
         or data.startswith("medset_")
     ):
         await handle_media_callbacks(query, data, cid, user, user_states)
+    elif (
+        data.startswith("cfg_mod_warns_")
+        or data.startswith("cfg_view_warns_")
+        or data.startswith("wrn_")
+        or data.startswith("wrnpen_")
+        or data.startswith("wrnlim_")
+        or data.startswith("wrnset_dur_")
+    ):
+        await handle_warns_callbacks(query, data, cid, user, user_states)
     elif data.startswith("alp") or data.startswith("cfg_view_alphabets_"):
         await handle_alphabets_callbacks(query, data, cid)
     elif data.startswith("cpt_") or data.startswith("cfg_view_captcha_"):
@@ -248,6 +258,10 @@ async def interactive_state_processor(update: Update, context: ContextTypes.DEFA
         # Route to Media Block Duration State
         if state and state.startswith("awaiting_med_dur_"):
             return await handle_media_text_state(update, context, user_states)
+
+        # Route to Warns Module Duration State
+        if state and state.startswith("awaiting_wrn_dur_"):
+            return await handle_warns_text_state(update, context, user_states)
 
         cfg = get_config(chat_id)
         msg = update.message
@@ -295,7 +309,7 @@ async def interactive_state_processor(update: Update, context: ContextTypes.DEFA
     # 3. Live Group Message Inspectors
     if await inspect_antispam_message(update, context):
         return True
-        
+
     await inspect_media_message(update, context)
     return False
 
