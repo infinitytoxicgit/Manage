@@ -20,12 +20,14 @@ from utils import (
     parse_custom_buttons, parse_time_duration
 )
 
-from modules.settings import get_page1_settings_keyboard, get_page2_settings_keyboard
+from modules.settings import (
+    get_page1_settings_keyboard, get_page2_settings_keyboard, handle_admin_settings_callbacks
+)
 from modules.welcome import handle_welcome_callbacks
 from modules.goodbye import handle_goodbye_callbacks
 from modules.antiflood import handle_antiflood_callbacks, handle_antiflood_text_state
 from modules.antispam import handle_antispam_callbacks, handle_antispam_text_state, inspect_antispam_message
-from modules.admin_report import handle_admin_report_callbacks, handle_report_command
+from modules.admin_report import handle_report_command, handle_report_resolve_callback
 from modules.alphabets import handle_alphabets_callbacks
 from modules.captcha import handle_captcha_callbacks
 from modules.checks import handle_checks_callbacks
@@ -54,15 +56,19 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
             pass
         return
 
-    # Handle Translation Click Actions
-    if data.startswith("trset_") or data.startswith("trcancel_"):
-        await handle_regulations_callbacks(query, data, chat.id, user, chat, user_states, context)
-        return
-
-    # /settings open handler
+    # /settings open handler (Priority 1)
     if data.startswith("set_open_"):
-        mode = data.split("_")[2]
-        cid = int(data.split("_")[3])
+        parts = data.split("_")
+        mode = parts[2]
+        cid = int(parts[3])
+
+        if not await is_user_admin(cid, user.id, context):
+            try:
+                await query.answer("Sirf Admins settings badal sakte hain!", show_alert=True)
+            except Exception:
+                pass
+            return
+
         chat_title = chat.title if chat.type != "private" else "Group"
         header_text = f"<b>SETTINGS</b>\nGroup: {chat_title}\n\n<i>Select one of the settings that you want to change.</i>"
 
@@ -81,6 +87,11 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
                 bot_info = await context.bot.get_me()
                 start_btn = [[create_btn("🤖 Start Bot in PM", url=f"https://t.me/{bot_info.username}?start=settings_{cid}")]]
                 await fast_edit(query, "⚠️ Pehle bot ko PM me /start karein.", InlineKeyboardMarkup(start_btn))
+        return
+
+    # Handle Translation Click Actions
+    if data.startswith("trset_") or data.startswith("trcancel_"):
+        await handle_regulations_callbacks(query, data, chat.id, user, chat, user_states, context)
         return
 
     # Popups
@@ -109,7 +120,12 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
             pass
         return
 
-    # Extract Chat ID safely
+    # Report Resolution Action
+    if data.startswith("represolve_"):
+        await handle_report_resolve_callback(query, data, user, context)
+        return
+
+    # Extract Chat ID safely for sub-modules
     match = re.search(r"(-?\d+)$", data)
     cid = int(match.group(1)) if match else chat.id
 
@@ -164,9 +180,8 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
         or data.startswith("reptog_") 
         or data.startswith("repadm") 
         or data.startswith("repadv")
-        or data.startswith("represolve_")
     ):
-        await handle_admin_report_callbacks(query, data, cid, user, user_states, context)
+        await handle_admin_settings_callbacks(query, data, cid, user, user_states, context)
     elif data.startswith("alp") or data.startswith("cfg_view_alphabets_"):
         await handle_alphabets_callbacks(query, data, cid)
     elif data.startswith("cpt_") or data.startswith("cfg_view_captcha_"):
@@ -174,7 +189,7 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
     elif data.startswith("chk") or data.startswith("cfg_view_checks_"):
         await handle_checks_callbacks(query, data, cid)
 
-# Unified Message Receiver (Interactive States & Spam Scanning)
+# Unified Message Receiver
 async def interactive_state_processor(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     if not update.message or not update.message.from_user:
         return False
@@ -183,7 +198,7 @@ async def interactive_state_processor(update: Update, context: ContextTypes.DEFA
     state_key = (chat_id, user_id)
     text = update.message.text or update.message.caption or ""
 
-    # 1. Trigger for @admin command
+    # 1. Trigger for @admin command in group
     if "@admin" in text.lower() or text.startswith("/report") or text.startswith("/admin"):
         await handle_report_command(update, context)
         return True
