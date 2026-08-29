@@ -203,18 +203,63 @@ async def interactive_state_processor(update: Update, context: ContextTypes.DEFA
         return True
 
     elif state.startswith("awaiting_flood_dur_"):
-        parsed_sec = parse_time_duration(text)
-        if parsed_sec < 30:
-            await msg.reply_text("❌ Minimum duration is 30 seconds. Please try again:")
-            user_states[state_key] = state  # State active rakhein
+        raw_t = text.strip().lower()
+        
+        # Strict unit check to prevent random text like '39 hot' from being accepted
+        valid_units = ['sec', 'second', 'secs', 'seconds', 'min', 'mins', 'minute', 'minutes', 'hr', 'hrs', 'hour', 'hours', 'day', 'days', 'month', 'months', 'yr', 'yrs', 'year', 'years', 's', 'm', 'h', 'd', 'mo', 'y']
+        has_valid_unit = any(unit in raw_t for unit in valid_units)
+        
+        parsed_sec = parse_time_duration(raw_t)
+        
+        if parsed_sec <= 0 or not has_valid_unit:
+            match_num = re.search(r'\d+', raw_t)
+            if match_num and has_valid_unit:
+                val = int(match_num.group())
+                if 's' in raw_t: parsed_sec = val
+                elif 'm' in raw_t: parsed_sec = val * 60
+                elif 'h' in raw_t: parsed_sec = val * 3600
+                elif 'd' in raw_t: parsed_sec = val * 86400
+                elif 'mo' in raw_t: parsed_sec = val * 2592000
+                elif 'y' in raw_t: parsed_sec = val * 31536000
+
+        if parsed_sec < 30 or not has_valid_unit:
+            await msg.reply_text(
+                "❌ <b>Invalid format!</b> Minimum duration is 30 seconds.\n"
+                "<i>Example:</i> <code>10 minutes</code>, <code>2 hours</code>, <code>30 seconds</code>\n\n"
+                "Please try again:"
+            , parse_mode="HTML")
+            user_states[state_key] = state  # Keep waiting state active
             return True
 
         cfg["flood_duration_sec"] = parsed_sec
         cfg["flood_duration_str"] = text.strip()
         save_config(chat_id, cfg)
 
-        kb = [[create_btn("⬅️ Back to Antiflood", callback_data=f"cfg_view_flood_{chat_id}")]]
-        await msg.reply_text(f"✅ <b>Antiflood duration successfully set to {text}!</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
+        try:
+            await msg.delete()
+        except Exception:
+            pass
+
+        from modules.antiflood import get_antiflood_text, get_antiflood_main_keyboard
+        
+        if msg.reply_to_message:
+            try:
+                await context.bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=msg.reply_to_message.message_id,
+                    text=f"✅ Antiflood duration successfully set to <b>{text.strip()}</b>!\n\n{get_antiflood_text(chat_id)}",
+                    reply_markup=get_antiflood_main_keyboard(chat_id),
+                    parse_mode="HTML"
+                )
+                return True
+            except Exception:
+                pass
+
+        await msg.reply_text(
+            f"✅ Antiflood duration successfully set to <b>{text.strip()}</b>!",
+            reply_markup=get_antiflood_main_keyboard(chat_id),
+            parse_mode="HTML"
+        )
         return True
 
     return False
