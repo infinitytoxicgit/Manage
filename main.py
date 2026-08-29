@@ -4,6 +4,7 @@ import subprocess
 import logging
 import re
 import shutil
+import html
 from pathlib import Path
 from telegram import Update, InlineKeyboardMarkup
 from telegram.error import Forbidden
@@ -201,6 +202,21 @@ async def interactive_state_processor(update: Update, context: ContextTypes.DEFA
         await msg.reply_text(f"<code>{html.escape(text)}</code>", reply_markup=InlineKeyboardMarkup(final_kb), parse_mode="HTML")
         return True
 
+    elif state.startswith("awaiting_flood_dur_"):
+        parsed_sec = parse_time_duration(text)
+        if parsed_sec < 30:
+            await msg.reply_text("❌ Minimum duration is 30 seconds. Please try again:")
+            user_states[state_key] = state  # State active rakhein
+            return True
+
+        cfg["flood_duration_sec"] = parsed_sec
+        cfg["flood_duration_str"] = text.strip()
+        save_config(chat_id, cfg)
+
+        kb = [[create_btn("⬅️ Back to Antiflood", callback_data=f"cfg_view_flood_{chat_id}")]]
+        await msg.reply_text(f"✅ <b>Antiflood duration successfully set to {text}!</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
+        return True
+
     return False
 
 # Commands
@@ -306,13 +322,13 @@ async def me_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def update_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in OWNER_IDS:
         return
-    
+
     status_msg = await update.message.reply_text("🔄 **Force syncing all files from GitHub...**", parse_mode="Markdown")
     repo_dir = Path(__file__).resolve().parent
 
     try:
         subprocess.run(["git", "stash", "--all"], cwd=repo_dir, capture_output=True, text=True)
-        
+
         branch_proc = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=repo_dir, capture_output=True, text=True, check=True)
         active_branch = branch_proc.stdout.strip() or "main"
 
@@ -334,7 +350,6 @@ async def update_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
 
-        # Clean process restart using current python interpreter and main.py absolute path
         os.execv(sys.executable, [sys.executable, os.path.abspath(__file__)])
 
     except Exception as e:
