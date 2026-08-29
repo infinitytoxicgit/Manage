@@ -5,9 +5,8 @@ import copy
 from pathlib import Path
 from config import DEFAULT_CONFIG
 
-# Absolute Path taaki restart ke baad database location change na ho
+# Ensure database is stored safely in the persistent project root folder
 DB_FILE = str(Path(__file__).resolve().parent / "group_data.db")
-group_settings_cache = {}
 
 def get_db_connection():
     conn = sqlite3.connect(DB_FILE, timeout=30)
@@ -52,7 +51,7 @@ def init_db():
 init_db()
 
 def deep_merge(default_dict: dict, saved_dict: dict) -> dict:
-    """Deep merge taaki nested settings (penalties, permissions) default se overwrite na hon."""
+    """Merge saved settings securely with defaults without losing custom configurations."""
     merged = copy.deepcopy(default_dict)
     for key, value in saved_dict.items():
         if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
@@ -62,9 +61,6 @@ def deep_merge(default_dict: dict, saved_dict: dict) -> dict:
     return merged
 
 def get_config(chat_id: int) -> dict:
-    if chat_id in group_settings_cache:
-        return group_settings_cache[chat_id]
-
     conn = get_db_connection()
     c = conn.cursor()
     c.execute("SELECT config_json FROM settings WHERE chat_id = ?", (chat_id,))
@@ -81,11 +77,9 @@ def get_config(chat_id: int) -> dict:
         cfg = copy.deepcopy(DEFAULT_CONFIG)
         save_config(chat_id, cfg)
 
-    group_settings_cache[chat_id] = cfg
     return cfg
 
 def save_config(chat_id: int, cfg: dict):
-    group_settings_cache[chat_id] = cfg
     conn = get_db_connection()
     c = conn.cursor()
     c.execute(
