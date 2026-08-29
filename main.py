@@ -28,6 +28,7 @@ from modules.goodbye import handle_goodbye_callbacks
 from modules.antiflood import handle_antiflood_callbacks, handle_antiflood_text_state
 from modules.antispam import handle_antispam_callbacks, handle_antispam_text_state, inspect_antispam_message
 from modules.admin_report import handle_report_command, handle_report_resolve_callback
+from modules.blocks import handle_blocks_callbacks, handle_blocks_text_state
 from modules.alphabets import handle_alphabets_callbacks
 from modules.captcha import handle_captcha_callbacks
 from modules.checks import handle_checks_callbacks
@@ -183,6 +184,17 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
         or data.startswith("repadv")
     ):
         await handle_admin_settings_callbacks(query, data, cid, user, user_states, context)
+    elif (
+        data.startswith("cfg_mod_blocks_")
+        or data.startswith("cfg_view_blocks_")
+        or data.startswith("blk_")
+        or data.startswith("blkpen_")
+        or data.startswith("blktog_")
+        or data.startswith("blkgrid_")
+        or data.startswith("blkval_")
+        or data.startswith("blkset_dur_")
+    ):
+        await handle_blocks_callbacks(query, data, cid, user, user_states)
     elif data.startswith("alp") or data.startswith("cfg_view_alphabets_"):
         await handle_alphabets_callbacks(query, data, cid)
     elif data.startswith("cpt_") or data.startswith("cfg_view_captcha_"):
@@ -219,6 +231,10 @@ async def interactive_state_processor(update: Update, context: ContextTypes.DEFA
         # Route to Anti-Spam Module
         if state and (state.startswith("awaiting_as_tg_dur_") or state.startswith("awaiting_as_tot_dur_") or state.startswith("awaiting_as_wl_")):
             return await handle_antispam_text_state(update, context, user_states)
+
+        # Route to Blocks Module Duration State
+        if state and state.startswith("awaiting_blk_dur_"):
+            return await handle_blocks_text_state(update, context, user_states)
 
         cfg = get_config(chat_id)
         msg = update.message
