@@ -24,6 +24,7 @@ from modules.settings import get_page1_settings_keyboard, get_page2_settings_key
 from modules.welcome import handle_welcome_callbacks
 from modules.goodbye import handle_goodbye_callbacks
 from modules.antiflood import handle_antiflood_callbacks, handle_antiflood_text_state
+from modules.antispam import handle_antispam_callbacks, handle_antispam_text_state, inspect_antispam_message
 from modules.alphabets import handle_alphabets_callbacks
 from modules.captcha import handle_captcha_callbacks
 from modules.checks import handle_checks_callbacks
@@ -140,6 +141,18 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
         await handle_goodbye_callbacks(query, data, cid, user, chat, bot_info.username, user_states)
     elif data.startswith("fl") or data.startswith("cfg_view_flood_"):
         await handle_antiflood_callbacks(query, data, cid, user, user_states)
+    elif (
+        data.startswith("as_") 
+        or data.startswith("astg") 
+        or data.startswith("astot") 
+        or data.startswith("assub") 
+        or data.startswith("asexc") 
+        or data.startswith("cfg_view_antispam_") 
+        or data.startswith("cfg_view_spam_") 
+        or data.startswith("cfg_view_aspam_") 
+        or data.startswith("aspam_")
+    ):
+        await handle_antispam_callbacks(query, data, cid, user, user_states)
     elif data.startswith("alp") or data.startswith("cfg_view_alphabets_"):
         await handle_alphabets_callbacks(query, data, cid)
     elif data.startswith("cpt_") or data.startswith("cfg_view_captcha_"):
@@ -147,7 +160,7 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
     elif data.startswith("chk") or data.startswith("cfg_view_checks_"):
         await handle_checks_callbacks(query, data, cid)
 
-# Interactive Message Receiver
+# Unified Message Receiver (Interactive States & Spam Scanning)
 async def interactive_state_processor(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     if not update.message or not update.message.from_user:
         return False
@@ -155,62 +168,68 @@ async def interactive_state_processor(update: Update, context: ContextTypes.DEFA
     user_id = update.message.from_user.id
     state_key = (chat_id, user_id)
 
-    if state_key not in user_states:
-        return False
+    # 1. State Handlers
+    if state_key in user_states:
+        if not await is_user_admin(chat_id, user_id, context):
+            user_states.pop(state_key, None)
+            return False
 
-    if not await is_user_admin(chat_id, user_id, context):
-        user_states.pop(state_key, None)
-        return False
+        state = user_states.get(state_key)
 
-    # Route antiflood duration directly to antiflood module
-    state = user_states.get(state_key)
-    if state and state.startswith("awaiting_flood_dur_"):
-        return await handle_antiflood_text_state(update, context, user_states)
+        # Route to Antiflood Module
+        if state and state.startswith("awaiting_flood_dur_"):
+            return await handle_antiflood_text_state(update, context, user_states)
 
-    cfg = get_config(chat_id)
-    msg = update.message
-    text = msg.text or msg.caption or ""
+        # Route to Anti-Spam Module
+        if state and (state.startswith("awaiting_as_tg_dur_") or state.startswith("awaiting_as_tot_dur_") or state.startswith("awaiting_as_wl_")):
+            return await handle_antispam_text_state(update, context, user_states)
 
-    if state == "awaiting_reg_text":
-        user_states.pop(state_key, None)
-        cfg["rules_text"] = text
-        save_config(chat_id, cfg)
-        kb = [[create_btn("⬅️ Back", callback_data=f"reg_custom_msg_{chat_id}")]]
-        await msg.reply_text("✅ <b>Regulations message set & permanently saved!</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
-        return True
+        cfg = get_config(chat_id)
+        msg = update.message
+        text = msg.text or msg.caption or ""
 
-    elif state == "awaiting_reg_media":
-        user_states.pop(state_key, None)
-        if msg.photo:
-            cfg["rules_media_id"] = msg.photo[-1].file_id
-            cfg["rules_media_type"] = "photo"
-        elif msg.video:
-            cfg["rules_media_id"] = msg.video.file_id
-            cfg["rules_media_type"] = "video"
-        elif msg.sticker:
-            cfg["rules_media_id"] = msg.sticker.file_id
-            cfg["rules_media_type"] = "sticker"
-        else:
-            await msg.reply_text("❌ Kripya photo, video ya sticker send karein.")
-            user_states[state_key] = state
+        if state == "awaiting_reg_text":
+            user_states.pop(state_key, None)
+            cfg["rules_text"] = text
+            save_config(chat_id, cfg)
+            kb = [[create_btn("⬅️ Back", callback_data=f"reg_custom_msg_{chat_id}")]]
+            await msg.reply_text("✅ <b>Regulations message set & permanently saved!</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
             return True
-        if msg.caption:
-            cfg["rules_text"] = msg.caption
-        save_config(chat_id, cfg)
-        kb = [[create_btn("⬅️ Back", callback_data=f"reg_custom_msg_{chat_id}")]]
-        await msg.reply_text("✅ <b>Regulations media set & permanently saved!</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
-        return True
 
-    elif state == "awaiting_reg_buttons":
-        user_states.pop(state_key, None)
-        cfg["rules_buttons_raw"] = text
-        save_config(chat_id, cfg)
-        kb = parse_custom_buttons(text, chat_id)
-        btn_list = kb.inline_keyboard if kb else []
-        final_kb = list(btn_list) + [[create_btn("⬅️ Back", callback_data=f"reg_custom_msg_{chat_id}")]]
-        await msg.reply_text(f"<code>{html.escape(text)}</code>", reply_markup=InlineKeyboardMarkup(final_kb), parse_mode="HTML")
-        return True
+        elif state == "awaiting_reg_media":
+            user_states.pop(state_key, None)
+            if msg.photo:
+                cfg["rules_media_id"] = msg.photo[-1].file_id
+                cfg["rules_media_type"] = "photo"
+            elif msg.video:
+                cfg["rules_media_id"] = msg.video.file_id
+                cfg["rules_media_type"] = "video"
+            elif msg.sticker:
+                cfg["rules_media_id"] = msg.sticker.file_id
+                cfg["rules_media_type"] = "sticker"
+            else:
+                await msg.reply_text("❌ Kripya photo, video ya sticker send karein.")
+                user_states[state_key] = state
+                return True
+            if msg.caption:
+                cfg["rules_text"] = msg.caption
+            save_config(chat_id, cfg)
+            kb = [[create_btn("⬅️ Back", callback_data=f"reg_custom_msg_{chat_id}")]]
+            await msg.reply_text("✅ <b>Regulations media set & permanently saved!</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
+            return True
 
+        elif state == "awaiting_reg_buttons":
+            user_states.pop(state_key, None)
+            cfg["rules_buttons_raw"] = text
+            save_config(chat_id, cfg)
+            kb = parse_custom_buttons(text, chat_id)
+            btn_list = kb.inline_keyboard if kb else []
+            final_kb = list(btn_list) + [[create_btn("⬅️ Back", callback_data=f"reg_custom_msg_{chat_id}")]]
+            await msg.reply_text(f"<code>{html.escape(text)}</code>", reply_markup=InlineKeyboardMarkup(final_kb), parse_mode="HTML")
+            return True
+
+    # 2. Inspect Message for Anti-Spam Checking in Groups
+    await inspect_antispam_message(update, context)
     return False
 
 # Commands
@@ -312,7 +331,7 @@ async def me_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(info, parse_mode="HTML")
 
-# FULL ROBUST FORCE UPDATE COMMAND (Fixed Auto-Pull & Async Safe Process Restart)
+# FULL ROBUST FORCE UPDATE COMMAND
 async def update_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in OWNER_IDS:
         return
@@ -321,23 +340,18 @@ async def update_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     repo_dir = Path(__file__).resolve().parent
 
     try:
-        # 1. Stash all local modifications
         subprocess.run(["git", "stash", "--include-untracked"], cwd=repo_dir, capture_output=True, text=True)
 
-        # 2. Get active branch
         branch_proc = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=repo_dir, capture_output=True, text=True, check=True)
         active_branch = branch_proc.stdout.strip() or "main"
 
-        # 3. Force fetch & hard reset to origin
         subprocess.run(["git", "fetch", "--all"], cwd=repo_dir, capture_output=True, text=True, check=True)
         subprocess.run(["git", "reset", "--hard", f"origin/{active_branch}"], cwd=repo_dir, capture_output=True, text=True, check=True)
         subprocess.run(["git", "clean", "-fd"], cwd=repo_dir, capture_output=True, text=True, check=True)
 
-        # 4. Read latest commit info
         log_proc = subprocess.run(["git", "log", "-1", "--pretty=format:%s (%h)"], cwd=repo_dir, capture_output=True, text=True, check=True)
         latest_commit_msg = log_proc.stdout.strip()
 
-        # 5. Clear all bytecode caches
         for pyc_dir in repo_dir.rglob("__pycache__"):
             shutil.rmtree(pyc_dir, ignore_errors=True)
 
@@ -349,7 +363,6 @@ async def update_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
 
-        # 6. Spawn new process cleanly and stop the current application loop
         async def restart_bot():
             await asyncio.sleep(1)
             os.execv(sys.executable, [sys.executable] + sys.argv)
