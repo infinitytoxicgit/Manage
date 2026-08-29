@@ -1,5 +1,12 @@
 from database import get_config, save_config
-from utils import create_btn, fast_edit, InlineKeyboardMarkup, send_custom_bundle, format_template, parse_custom_buttons
+from utils import (
+    create_btn,
+    fast_edit,
+    InlineKeyboardMarkup,
+    send_custom_bundle,
+    parse_custom_buttons,
+    is_user_admin
+)
 
 def get_regulations_text(chat_id: int):
     return (
@@ -76,7 +83,15 @@ def get_cmd_permissions_keyboard(chat_id: int):
     keyboard.append([create_btn("⬅️ Back", callback_data=f"cfg_view_reg_{chat_id}")])
     return InlineKeyboardMarkup(keyboard)
 
-async def handle_regulations_callbacks(query, data: str, cid: int, user, chat, user_states):
+async def handle_regulations_callbacks(query, data: str, cid: int, user, chat, user_states, context):
+    # Admin Permission Enforcement
+    if not await is_user_admin(cid, user.id, context):
+        try:
+            await query.answer("❌ Aapke paas regulations change karne ki permission nahi hai!", show_alert=True)
+        except Exception:
+            pass
+        return
+
     cfg = get_config(cid)
 
     if data.startswith("cfg_view_reg_"):
