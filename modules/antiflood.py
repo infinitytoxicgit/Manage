@@ -1,6 +1,46 @@
 import re
 from database import get_config, save_config
-from utils import create_btn, make_penalty_buttons, fast_edit, InlineKeyboardMarkup, parse_time_duration
+from utils import create_btn, make_penalty_buttons, fast_edit, InlineKeyboardMarkup
+
+def parse_flood_duration_custom(text: str) -> int:
+    raw = text.strip().lower()
+    
+    # Check for invalid words
+    valid_units = ['sec', 'second', 'secs', 'seconds', 'min', 'mins', 'minute', 'minutes', 
+                   'hr', 'hrs', 'hour', 'hours', 'day', 'days', 'month', 'months', 
+                   'yr', 'yrs', 'year', 'years', 's', 'm', 'h', 'd', 'mo', 'y']
+    
+    # Match patterns like: "10 min", "10m", "3 month 2 days", "30s"
+    matches = re.findall(r'(\d+)\s*([a-zA-Z]+)', raw)
+    if not matches:
+        return 0
+
+    total_seconds = 0
+    matched_any = False
+
+    for val_str, unit in matches:
+        val = int(val_str)
+        unit = unit.lower()
+        if unit in ['s', 'sec', 'secs', 'second', 'seconds']:
+            total_seconds += val
+            matched_any = True
+        elif unit in ['m', 'min', 'mins', 'minute', 'minutes', 'mis']:
+            total_seconds += val * 60
+            matched_any = True
+        elif unit in ['h', 'hr', 'hrs', 'hour', 'hours']:
+            total_seconds += val * 3600
+            matched_any = True
+        elif unit in ['d', 'day', 'days']:
+            total_seconds += val * 86400
+            matched_any = True
+        elif unit in ['mo', 'month', 'months']:
+            total_seconds += val * 2592000
+            matched_any = True
+        elif unit in ['y', 'yr', 'yrs', 'year', 'years']:
+            total_seconds += val * 31536000
+            matched_any = True
+
+    return total_seconds if matched_any else 0
 
 def get_antiflood_main_keyboard(chat_id: int):
     cfg = get_config(chat_id)
@@ -15,7 +55,7 @@ def get_antiflood_main_keyboard(chat_id: int):
     ]
     if p in ["Mute", "Ban", "Warn"]:
         keyboard.append([create_btn(f"⏰ Set {p.lower()} duration", callback_data=f"flset_dur_{p}_{chat_id}")])
-    keyboard.append([create_btn("⬅️ Back", callback_data=f"cfg_page_1_{chat_id}")] )
+    keyboard.append([create_btn("⬅️ Back", callback_data=f"cfg_page_1_{chat_id}")])
     return InlineKeyboardMarkup(keyboard)
 
 def get_antiflood_text(chat_id: int):
@@ -97,11 +137,11 @@ async def handle_antiflood_callbacks(query, data: str, cid: int, user, user_stat
         await query.answer("Duration removed!")
         await handle_antiflood_callbacks(query, f"cfg_view_flood_{cid}", cid, user, user_states)
 
-# Dedicated text handler for Antiflood duration inputs
 async def handle_antiflood_text_state(update, context, user_states):
     msg = update.message
     if not msg or not msg.from_user:
         return False
+        
     chat_id = update.effective_chat.id
     user_id = msg.from_user.id
     state_key = (chat_id, user_id)
@@ -114,69 +154,31 @@ async def handle_antiflood_text_state(update, context, user_states):
         return False
 
     text = msg.text or msg.caption or ""
-    raw_t = text.strip().lower()
+    parsed_sec = parse_flood_duration_custom(text)
 
-    # Common spelling fixes for units (e.g. mis, mi -> min, sec -> s)
-    raw_t = re.sub(r'\bmis\b', 'min', raw_t)
-    raw_t = re.sub(r'\bmisecs\b', 'secs', raw_t)
-
-    valid_units = ['sec', 'second', 'secs', 'seconds', 'min', 'mins', 'minute', 'minutes', 'hr', 'hrs', 'hour', 'hours', 'day', 'days', 'month', 'months', 'yr', 'yrs', 'year', 'years', 's', 'm', 'h', 'd', 'mo', 'y']
-    has_valid_unit = any(unit in raw_t for unit in valid_units)
-
-    parsed_sec = parse_time_duration(raw_t)
-    if parsed_sec <= 0 or not has_valid_unit:
-        match_num = re.search(r'\d+', raw_t)
-        if match_num and has_valid_unit:
-            val = int(match_num.group())
-            if 's' in raw_t: parsed_sec = val
-            elif 'm' in raw_t: parsed_sec = val * 60
-            elif 'h' in raw_t: parsed_sec = val * 3600
-            elif 'd' in raw_t: parsed_sec = val * 86400
-            elif 'mo' in raw_t: parsed_sec = val * 2592000
-            elif 'y' in raw_t: parsed_sec = val * 31536000
-
-    # Agar format galat hai ya 30 seconds se kam hai
-    if parsed_sec < 30 or not has_valid_unit:
-        err_msg = await msg.reply_text(
+    # Agar format invalid hai ya 30 sec se kam hai
+    if parsed_sec < 30:
+        kb = [[create_btn("❌ Cancel", callback_data=f"cfg_view_flood_{chat_id}", style="danger")]]
+        await msg.reply_text(
             "❌ <b>Invalid duration format!</b>\n"
             "Minimum duration is 30 seconds.\n"
             "<i>Example:</i> <code>10 min</code>, <code>3 months</code>, <code>2 years</code>, <code>30s</code>\n\n"
             "Please try again:",
+            reply_markup=InlineKeyboardMarkup(kb),
             parse_mode="HTML"
         )
-        try:
-            await msg.delete()
-        except Exception:
-            pass
         return True
 
-    # Sahi time milne par state clear karo aur permanent database me save karo
+    # Sahi time hone par save karein
     user_states.pop(state_key, None)
     cfg = get_config(chat_id)
     cfg["flood_duration_sec"] = parsed_sec
     cfg["flood_duration_str"] = text.strip()
     save_config(chat_id, cfg)
 
-    try:
-        await msg.delete()
-    except Exception:
-        pass
-
-    if msg.reply_to_message:
-        try:
-            await context.bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=msg.reply_to_message.message_id,
-                text=get_antiflood_text(chat_id),
-                reply_markup=get_antiflood_main_keyboard(chat_id),
-                parse_mode="HTML"
-            )
-            return True
-        except Exception:
-            pass
-
+    # Antiflood main keyboard open karein wapas
     await msg.reply_text(
-        get_antiflood_text(chat_id),
+        f"✅ <b>Antiflood duration set to: {text.strip()}</b>\n\n" + get_antiflood_text(chat_id),
         reply_markup=get_antiflood_main_keyboard(chat_id),
         parse_mode="HTML"
     )
