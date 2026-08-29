@@ -56,7 +56,7 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
             pass
         return
 
-    # /settings open handler (Priority 1)
+    # /settings open handler
     if data.startswith("set_open_"):
         parts = data.split("_")
         mode = parts[2]
@@ -172,7 +172,8 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
     ):
         await handle_antispam_callbacks(query, data, cid, user, user_states)
     elif (
-        data.startswith("cfg_view_admincmd_") 
+        data.startswith("cfg_mod_admin_")
+        or data.startswith("cfg_view_admincmd_") 
         or data.startswith("cfg_view_admin_") 
         or data.startswith("cfg_view_report_") 
         or data.startswith("rep_") 
