@@ -25,7 +25,7 @@ from modules.antiflood import handle_antiflood_callbacks
 from modules.alphabets import handle_alphabets_callbacks
 from modules.captcha import handle_captcha_callbacks
 from modules.checks import handle_checks_callbacks
-from modules.regulations import handle_regulations_callbacks, get_translate_keyboard, TRANSLATE_CACHE
+from modules.regulations import handle_regulations_callbacks, translate_command
 
 user_states = {}
 
@@ -201,20 +201,6 @@ async def interactive_state_processor(update: Update, context: ContextTypes.DEFA
         await msg.reply_text(f"<code>{html.escape(text)}</code>", reply_markup=InlineKeyboardMarkup(final_kb), parse_mode="HTML")
         return True
 
-    elif state == "awaiting_wlc_text":
-        cfg["welcome_text"] = text
-        save_config(chat_id, cfg)
-        kb = [[create_btn("⬅️ Back", callback_data=f"wlc_custom_{chat_id}")]]
-        await msg.reply_text("✅ <b>Welcome message permanently saved!</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
-        return True
-
-    elif state == "awaiting_gby_text":
-        cfg["goodbye_text"] = text
-        save_config(chat_id, cfg)
-        kb = [[create_btn("⬅️ Back", callback_data=f"gby_custom_{chat_id}")]]
-        await msg.reply_text("✅ <b>Goodbye message permanently saved!</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
-        return True
-
     return False
 
 # Commands
@@ -271,66 +257,6 @@ async def rules_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     await send_custom_bundle(chat, user, cfg, mode="rules")
-
-# TRANSLATE COMMAND (Works with /translate, tag, reply or inline args)
-async def translate_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat = update.effective_chat
-    user = update.effective_user
-    msg = update.message
-    if not msg:
-        return
-
-    cfg = get_config(chat.id)
-    perm = cfg.get("perm_translate", "everyone")
-
-    # Permissions Hierarchy
-    if perm == "nobody":
-        return
-    if perm == "staff" and not await is_user_admin(chat.id, user.id, context):
-        return
-
-    target_text = ""
-    # 1. Check if user replied to a message
-    if msg.reply_to_message:
-        target_text = msg.reply_to_message.text or msg.reply_to_message.caption or ""
-    
-    # 2. Check if user passed text with command (e.g., /translate hello)
-    if not target_text and context.args:
-        target_text = " ".join(context.args)
-
-    # 3. Fallback: Parse message raw text directly
-    if not target_text and msg.text:
-        parts = re.split(r"^/translate(?:@\w+)?\s*", msg.text.strip(), flags=re.IGNORECASE)
-        if len(parts) > 1 and parts[1].strip():
-            target_text = parts[1].strip()
-
-    if not target_text:
-        await msg.reply_text(
-            "ℹ️ <b>How to use /translate:</b>\n\n"
-            "1. Reply to any message with <code>/translate</code>\n"
-            "2. Or type: <code>/translate your message here</code>",
-            parse_mode="HTML"
-        )
-        return
-
-    if perm == "private" and chat.type != "private":
-        try:
-            TRANSLATE_CACHE[(user.id, user.id)] = target_text
-            await context.bot.send_message(
-                chat_id=user.id,
-                text=f"🌐 <b>Select language to translate:</b>\n\n<blockquote>{html.escape(target_text[:200])}</blockquote>",
-                reply_markup=get_translate_keyboard(user.id, user.id),
-                parse_mode="HTML"
-            )
-            await msg.reply_text("🌐 Translation options sent to your PM.")
-        except Exception:
-            bot_info = await context.bot.get_me()
-            await msg.reply_text(f"Please start @{bot_info.username} in PM to use /translate.")
-        return
-
-    TRANSLATE_CACHE[(chat.id, user.id)] = target_text
-    prompt_text = f"🌐 <b>Select language to translate:</b>\n\n<blockquote>{html.escape(target_text[:300])}</blockquote>"
-    await msg.reply_text(prompt_text, reply_markup=get_translate_keyboard(user.id, chat.id), parse_mode="HTML")
 
 async def staff_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
