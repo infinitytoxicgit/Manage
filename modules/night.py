@@ -1,6 +1,8 @@
 import datetime
 import html
-from telegram import Update, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove
+from telegram import (
+    Update, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove
+)
 from database import get_config, save_config
 from utils import create_btn, fast_edit, is_user_admin
 
@@ -9,7 +11,6 @@ def get_group_current_time_str(cid: int) -> str:
     cfg = get_config(cid)
     tz_offset_hours = cfg.get("night_tz_offset", 0)
     
-    # Calculate time with offset
     utc_now = datetime.datetime.now(datetime.timezone.utc)
     target_time = utc_now + datetime.timedelta(hours=tz_offset_hours)
     
@@ -26,7 +27,6 @@ def get_night_main_keyboard(cid: int):
     mode = cfg.get("night_mode", "off") # off, medias, silence
     advise_icon = "✔️" if cfg.get("night_advise", True) else "✖️"
 
-    # 1. Off State Keyboard (Screenshot 1)
     if mode == "off":
         keyboard = [
             [create_btn("📸 Delete medias", callback_data=f"ngtset_mode_medias_{cid}"), create_btn("🤫 Global Silence", callback_data=f"ngtset_mode_silence_{cid}")],
@@ -34,7 +34,6 @@ def get_night_main_keyboard(cid: int):
         ]
         return InlineKeyboardMarkup(keyboard)
 
-    # 2. Active State Keyboard (Screenshot 2 & 3)
     r_mode = [
         create_btn("📸 Delete medias", callback_data=f"ngtset_mode_medias_{cid}", style="success" if mode == "medias" else None),
         create_btn("🤫 Global Silence", callback_data=f"ngtset_mode_silence_{cid}", style="success" if mode == "silence" else None)
@@ -157,7 +156,6 @@ async def handle_night_callbacks(query, data: str, cid: int, user, user_states, 
         val = int(parts[2])
         cfg["night_start_hour"] = val
         save_config(cid, cfg)
-        # Advance to ending time grid
         await fast_edit(query, get_hour_grid_text("end"), get_hour_grid_keyboard(cid, "end"))
 
     elif data.startswith("ngtval_end_"):
@@ -165,10 +163,9 @@ async def handle_night_callbacks(query, data: str, cid: int, user, user_states, 
         val = int(parts[2])
         cfg["night_end_hour"] = val
         save_config(cid, cfg)
-        # Done! Return to main night menu
         await fast_edit(query, get_night_main_text(cid), get_night_main_keyboard(cid))
 
-    # Time Zone Menus
+    # Time Zone Menu
     elif data.startswith("ngt_tz_menu_"):
         is_private = query.message.chat.type == "private"
         if not is_private:
@@ -180,6 +177,7 @@ async def handle_night_callbacks(query, data: str, cid: int, user, user_states, 
         else:
             await fast_edit(query, get_timezone_text(cid), get_timezone_keyboard(cid, in_pm=True))
 
+    # Request Position in DM with Native Location Button
     elif data.startswith("ngttz_reqpos_"):
         user_states[(cid, user.id)] = f"awaiting_ngt_tz_loc_{query.message.message_id}"
         
@@ -192,14 +190,29 @@ async def handle_night_callbacks(query, data: str, cid: int, user, user_states, 
             "<i>Your position will not be saved, we will save only the Time Zone detected.</i>"
         )
         
-        # Position request inline & reply markup
-        kb = [
-            [create_btn("📍 Send the position", callback_data=f"ngttz_geoloc_{cid}")],
-            [create_btn("❌ Cancel", callback_data=f"ngt_tz_menu_{cid}", style="danger")]
-        ]
-        await fast_edit(query, prompt_txt, InlineKeyboardMarkup(kb))
+        # Bottom Reply Keyboard with Request Location
+        reply_kb = ReplyKeyboardMarkup(
+            [
+                [KeyboardButton("📍 Send the position", request_location=True)],
+                [KeyboardButton("❌ Cancel")]
+            ],
+            resize_keyboard=True,
+            one_time_keyboard=True
+        )
 
-# --- 5. TEXT & LOCATION STATE HANDLER FOR TIMEZONE ---
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
+
+        await context.bot.send_message(
+            chat_id=user.id,
+            text=prompt_txt,
+            reply_markup=reply_kb,
+            parse_mode="HTML"
+        )
+
+# --- 5. TEXT & LOCATION STATE HANDLER ---
 async def handle_night_text_state(update: Update, context, user_states):
     msg = update.effective_message
     if not msg or not msg.from_user:
@@ -207,36 +220,65 @@ async def handle_night_text_state(update: Update, context, user_states):
 
     chat_id = update.effective_chat.id
     user_id = msg.from_user.id
-    state_key = (chat_id, user_id)
+    
+    # Check if user has state in any chat context
+    state_key = None
+    for k in list(user_states.keys()):
+        if k[1] == user_id and str(user_states[k]).startswith("awaiting_ngt_tz_loc_"):
+            state_key = k
+            break
 
-    if state_key not in user_states:
+    if not state_key:
         return False
 
-    state = user_states.get(state_key)
-    if not state or not state.startswith("awaiting_ngt_tz_loc_"):
-        return False
+    target_cid = state_key[0]
+    cfg = get_config(target_cid)
 
-    cfg = get_config(chat_id)
-    panel_msg_id = int(state.split("_")[-1]) if state.split("_")[-1].isdigit() else None
+    # Cancel pressed
+    if msg.text and msg.text.strip() == "❌ Cancel":
+        user_states.pop(state_key, None)
+        await msg.reply_text(
+            "Timezone configuration cancelled.",
+            reply_markup=ReplyKeyboardRemove()
+        )
+        await msg.reply_text(
+            get_timezone_text(target_cid),
+            reply_markup=get_timezone_keyboard(target_cid, in_pm=True),
+            parse_mode="HTML"
+        )
+        return True
 
     tz_name = "UTC"
     tz_offset = 0
 
-    # If Location was sent
+    # If Location was shared
     if msg.location:
         lat = msg.location.latitude
         lon = msg.location.longitude
-        # Rough timezone offset estimate by longitude
+        # Estimate offset by longitude (15 deg per hour)
         tz_offset = round(lon / 15.0)
-        tz_name = f"UTC{'+' if tz_offset >= 0 else ''}{tz_offset}"
-    elif msg.text:
-        city = msg.text.strip().title()
-        if "Delhi" in city or "India" in city or "Kolkata" in city:
+        
+        # Known common regions approximation
+        if 68 <= lon <= 97 and 8 <= lat <= 37:
             tz_name = "Asia/Kolkata"
             tz_offset = 5.5
-        elif "Rome" in city or "Europe" in city:
+        elif -10 <= lon <= 30 and 35 <= lat <= 60:
             tz_name = "Europe/Rome"
             tz_offset = 2
+        else:
+            tz_name = f"UTC{'+' if tz_offset >= 0 else ''}{tz_offset}" if tz_offset != 0 else "UTC"
+
+    elif msg.text:
+        city = msg.text.strip().title()
+        if any(x in city for x in ["Delhi", "India", "Kolkata", "Mumbai"]):
+            tz_name = "Asia/Kolkata"
+            tz_offset = 5.5
+        elif any(x in city for x in ["Rome", "Italy", "Europe", "Paris", "Berlin"]):
+            tz_name = "Europe/Rome"
+            tz_offset = 2
+        elif "Utc" in city or "Gmt" in city:
+            tz_name = "UTC"
+            tz_offset = 0
         else:
             tz_name = city
             tz_offset = 0
@@ -244,34 +286,29 @@ async def handle_night_text_state(update: Update, context, user_states):
     user_states.pop(state_key, None)
     cfg["night_tz_name"] = tz_name
     cfg["night_tz_offset"] = tz_offset
-    save_config(chat_id, cfg)
+    save_config(target_cid, cfg)
 
-    try:
-        await msg.delete()
-    except Exception:
-        pass
+    # Calculate current formatted time for confirmation
+    utc_now = datetime.datetime.now(datetime.timezone.utc)
+    target_time = utc_now + datetime.timedelta(hours=tz_offset)
+    curr_time_str = target_time.strftime("%d/%m/%Y %H:%M")
 
-    curr_time_str = get_group_current_time_str(chat_id)
     confirm_text = (
         f"Time Zone set to <b>{tz_name}</b>\n"
         f"Current time: <b>{curr_time_str}</b>"
     )
-    kb = [[create_btn("⬅️ Back", callback_data=f"ngt_tz_menu_{chat_id}")]]
+    kb = [[create_btn("⬅️ Back", callback_data=f"ngt_tz_menu_{target_cid}")]]
 
-    if panel_msg_id:
-        try:
-            await context.bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=panel_msg_id,
-                text=confirm_text,
-                reply_markup=InlineKeyboardMarkup(kb),
-                parse_mode="HTML"
-            )
-            return True
-        except Exception:
-            pass
-
-    await msg.reply_text(confirm_text, reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
+    # Remove the reply keyboard and show confirmation
+    await msg.reply_text(
+        confirm_text,
+        reply_markup=ReplyKeyboardRemove()
+    )
+    await msg.reply_text(
+        confirm_text,
+        reply_markup=InlineKeyboardMarkup(kb),
+        parse_mode="HTML"
+    )
     return True
 
 # --- 6. LIVE NIGHT ENFORCER SCANNER ---
@@ -295,25 +332,21 @@ async def inspect_night_message(update: Update, context) -> bool:
     end_h = cfg.get("night_end_hour", 9)
     tz_offset = cfg.get("night_tz_offset", 0)
 
-    # Check if current local hour is inside the night window
     utc_now = datetime.datetime.now(datetime.timezone.utc)
     loc_now = utc_now + datetime.timedelta(hours=tz_offset)
     curr_hour = loc_now.hour
 
     is_night = False
     if start_h > end_h:
-        # e.g., from 23 to 9 (crosses midnight)
         if curr_hour >= start_h or curr_hour < end_h:
             is_night = True
     else:
-        # e.g., from 1 to 6
         if start_h <= curr_hour < end_h:
             is_night = True
 
     if not is_night:
         return False
 
-    # Night is active! Enforce rules:
     if mode == "silence":
         try:
             await msg.delete()
