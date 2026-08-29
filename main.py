@@ -25,7 +25,7 @@ from modules.antiflood import handle_antiflood_callbacks
 from modules.alphabets import handle_alphabets_callbacks
 from modules.captcha import handle_captcha_callbacks
 from modules.checks import handle_checks_callbacks
-from modules.regulations import handle_regulations_callbacks
+from modules.regulations import handle_regulations_callbacks, get_translate_keyboard, TRANSLATE_CACHE
 
 user_states = {}
 
@@ -50,22 +50,15 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
             pass
         return
 
-    # Extract Chat ID
-    match = re.search(r"(-?\d+)$", data)
-    cid = int(match.group(1)) if match else chat.id
-
-    if not await is_user_admin(cid, user.id, context):
-        try:
-            await query.answer("❌ Sirf Group Owner aur Admins settings badal sakte hain!", show_alert=True)
-        except Exception:
-            pass
+    # Handle Translation / Regulations sub-menus
+    if data.startswith("trset_") or data.startswith("trcancel_"):
+        await handle_regulations_callbacks(query, data, chat.id, user, chat, user_states, context)
         return
-
-    bot_info = await context.bot.get_me()
 
     # /settings opening selector
     if data.startswith("set_open_"):
         mode = data.split("_")[2]
+        cid = int(data.split("_")[3])
         chat_title = chat.title if chat.type != "private" else "Group"
         header_text = f"<b>SETTINGS</b>\nGroup: {chat_title}\n\n<i>Select one of the settings that you want to change.</i>"
 
@@ -81,6 +74,7 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
                 )
                 await fast_edit(query, "<i>Settings opened in Private Chat.</i>", None)
             except Forbidden:
+                bot_info = await context.bot.get_me()
                 start_btn = [[create_btn("🤖 Start Bot in PM", url=f"https://t.me/{bot_info.username}?start=settings_{cid}")]]
                 await fast_edit(query, "⚠️ Pehle bot ko PM me /start karein.", InlineKeyboardMarkup(start_btn))
         return
@@ -103,12 +97,26 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
         return
 
     if data.startswith("show_rules_popup_"):
+        cid = int(data.split("_")[3])
         cfg = get_config(cid)
         try:
             await query.answer(cfg.get("rules_text", "No rules set.")[:200], show_alert=True)
         except Exception:
             pass
         return
+
+    # Extract Chat ID
+    match = re.search(r"(-?\d+)$", data)
+    cid = int(match.group(1)) if match else chat.id
+
+    if not await is_user_admin(cid, user.id, context):
+        try:
+            await query.answer("Sirf Admins settings badal sakte hain!", show_alert=True)
+        except Exception:
+            pass
+        return
+
+    bot_info = await context.bot.get_me()
 
     # 1. Page Navigation
     if data.startswith("cfg_page_"):
@@ -150,8 +158,7 @@ async def interactive_state_processor(update: Update, context: ContextTypes.DEFA
 
     if not await is_user_admin(chat_id, user_id, context):
         user_states.pop(state_key, None)
-        await update.message.reply_text("❌ Aapke paas settings edit karne ka right nahi hai.")
-        return True
+        return False
 
     state = user_states.pop(state_key)
     cfg = get_config(chat_id)
@@ -162,7 +169,7 @@ async def interactive_state_processor(update: Update, context: ContextTypes.DEFA
         cfg["rules_text"] = text
         save_config(chat_id, cfg)
         kb = [[create_btn("⬅️ Back", callback_data=f"reg_custom_msg_{chat_id}")]]
-        await msg.reply_text("✅ <b>Regulations message permanently saved!</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
+        await msg.reply_text("✅ <b>Regulations message set.</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
         return True
 
     elif state == "awaiting_reg_media":
@@ -182,7 +189,7 @@ async def interactive_state_processor(update: Update, context: ContextTypes.DEFA
             cfg["rules_text"] = msg.caption
         save_config(chat_id, cfg)
         kb = [[create_btn("⬅️ Back", callback_data=f"reg_custom_msg_{chat_id}")]]
-        await msg.reply_text("✅ <b>Regulations media permanently saved!</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
+        await msg.reply_text("✅ <b>Regulations media set.</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
         return True
 
     elif state == "awaiting_reg_buttons":
@@ -201,50 +208,11 @@ async def interactive_state_processor(update: Update, context: ContextTypes.DEFA
         await msg.reply_text("✅ <b>Welcome message set.</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
         return True
 
-    elif state == "awaiting_wlc_media":
-        if msg.photo:
-            cfg["welcome_media_id"] = msg.photo[-1].file_id
-            cfg["welcome_media_type"] = "photo"
-        elif msg.video:
-            cfg["welcome_media_id"] = msg.video.file_id
-            cfg["welcome_media_type"] = "video"
-        elif msg.sticker:
-            cfg["welcome_media_id"] = msg.sticker.file_id
-            cfg["welcome_media_type"] = "sticker"
-        else:
-            await msg.reply_text("❌ Kripya photo, video ya sticker send karein.")
-            return True
-        if msg.caption:
-            cfg["welcome_text"] = msg.caption
-        save_config(chat_id, cfg)
-        kb = [[create_btn("⬅️ Back", callback_data=f"wlc_custom_{chat_id}")]]
-        await msg.reply_text("✅ <b>Welcome media set.</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
-        return True
-
-    elif state == "awaiting_wlc_buttons":
-        cfg["welcome_buttons_raw"] = text
-        save_config(chat_id, cfg)
-        kb = parse_custom_buttons(text, chat_id)
-        btn_list = kb.inline_keyboard if kb else []
-        final_kb = list(btn_list) + [[create_btn("⬅️ Back", callback_data=f"wlc_custom_{chat_id}")]]
-        await msg.reply_text(f"<code>{html.escape(text)}</code>", reply_markup=InlineKeyboardMarkup(final_kb), parse_mode="HTML")
-        return True
-
     elif state == "awaiting_gby_text":
         cfg["goodbye_text"] = text
         save_config(chat_id, cfg)
         kb = [[create_btn("⬅️ Back", callback_data=f"gby_custom_{chat_id}")]]
         await msg.reply_text("✅ <b>Goodbye message set.</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
-        return True
-
-    elif state.startswith("awaiting_flood_dur_"):
-        ptype = state.split("_")[3]
-        parsed_sec = parse_time_duration(text)
-        cfg["flood_duration_sec"] = parsed_sec
-        cfg["flood_duration_str"] = text.strip()
-        save_config(chat_id, cfg)
-        kb = [[create_btn("⬅️ Back to Antiflood", callback_data=f"cfg_view_flood_{chat_id}")]]
-        await msg.reply_text(f"✅ <b>Antiflood {ptype} duration set to {text}!</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
         return True
 
     return False
@@ -304,6 +272,52 @@ async def rules_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await send_custom_bundle(chat, user, cfg, mode="rules")
 
+async def translate_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat = update.effective_chat
+    user = update.effective_user
+    msg = update.message
+    cfg = get_config(chat.id)
+    perm = cfg.get("perm_translate", "everyone")
+
+    if perm == "nobody":
+        return
+    if perm == "staff" and not await is_user_admin(chat.id, user.id, context):
+        return
+
+    target_text = ""
+    if msg.reply_to_message:
+        target_text = msg.reply_to_message.text or msg.reply_to_message.caption or ""
+    elif context.args:
+        target_text = " ".join(context.args)
+
+    if not target_text:
+        await msg.reply_text(
+            "ℹ️ <b>How to use /translate:</b>\n\n"
+            "1. Reply to any message with <code>/translate</code>\n"
+            "2. Or type: <code>/translate your message here</code>",
+            parse_mode="HTML"
+        )
+        return
+
+    if perm == "private" and chat.type != "private":
+        try:
+            TRANSLATE_CACHE[(user.id, user.id)] = target_text
+            await context.bot.send_message(
+                chat_id=user.id,
+                text=f"🌐 <b>Select language to translate:</b>\n\n<blockquote>{html.escape(target_text[:200])}</blockquote>",
+                reply_markup=get_translate_keyboard(user.id, user.id),
+                parse_mode="HTML"
+            )
+            await msg.reply_text("🌐 Translation options sent to your PM.")
+        except Exception:
+            bot_info = await context.bot.get_me()
+            await msg.reply_text(f"Please start @{bot_info.username} in PM to use /translate.")
+        return
+
+    TRANSLATE_CACHE[(chat.id, user.id)] = target_text
+    prompt_text = f"🌐 <b>Select language to translate:</b>\n\n<blockquote>{html.escape(target_text[:300])}</blockquote>"
+    await msg.reply_text(prompt_text, reply_markup=get_translate_keyboard(user.id, chat.id), parse_mode="HTML")
+
 async def staff_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
@@ -348,37 +362,69 @@ async def me_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(info, parse_mode="HTML")
 
+# FULL PROVEN /UPDATE MECHANISM
 async def update_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in OWNER_IDS:
         return
     
-    status_msg = await update.message.reply_text("🔄 **Syncing with GitHub and restarting...**", parse_mode="Markdown")
+    status_msg = await update.message.reply_text("🔄 **Checking GitHub for updates...**", parse_mode="Markdown")
     repo_dir = Path(__file__).resolve().parent
 
     try:
-        subprocess.run(["git", "stash"], cwd=repo_dir, capture_output=True, text=True, check=True)
+        # 1. Stash any temporary changes (ignores database file issues)
+        subprocess.run(["git", "stash"], cwd=repo_dir, capture_output=True, text=True)
+
+        # 2. Get active branch
         branch_proc = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=repo_dir, capture_output=True, text=True, check=True)
-        current_branch = branch_proc.stdout.strip() or "main"
+        active_branch = branch_proc.stdout.strip() or "main"
 
+        # 3. Get old hash
+        old_hash_proc = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo_dir, capture_output=True, text=True, check=True)
+        old_hash = old_hash_proc.stdout.strip()
+
+        # 4. Fetch all remote branches
         subprocess.run(["git", "fetch", "--all"], cwd=repo_dir, capture_output=True, text=True, check=True)
-        subprocess.run(["git", "reset", "--hard", f"origin/{current_branch}"], cwd=repo_dir, capture_output=True, text=True, check=True)
-        
-        pull_proc = subprocess.run(["git", "pull", "origin", current_branch], cwd=repo_dir, capture_output=True, text=True, check=True)
-        pull_output = pull_proc.stdout.strip()
 
+        # 5. Force reset to match remote exactly
+        subprocess.run(["git", "reset", "--hard", f"origin/{active_branch}"], cwd=repo_dir, capture_output=True, text=True, check=True)
+
+        # 6. Check new hash & commit details
+        new_hash_proc = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo_dir, capture_output=True, text=True, check=True)
+        new_hash = new_hash_proc.stdout.strip()
+
+        log_proc = subprocess.run(["git", "log", "-1", "--pretty=format:%s (%h)"], cwd=repo_dir, capture_output=True, text=True, check=True)
+        latest_commit_msg = log_proc.stdout.strip()
+
+        # 7. Clean Python Bytecode cache
         for pyc_dir in repo_dir.rglob("__pycache__"):
             shutil.rmtree(pyc_dir, ignore_errors=True)
 
-        await status_msg.edit_text(f"⚙️ **Update Complete!**\n`{pull_output}`\n\n🔄 Bot restarted.", parse_mode="Markdown")
+        if old_hash == new_hash:
+            await status_msg.edit_text(
+                f"✅ **Already up-to-date!**\nLatest commit: `{latest_commit_msg}`\n\n🔄 Restarting engine...",
+                parse_mode="Markdown"
+            )
+        else:
+            await status_msg.edit_text(
+                f"🚀 **Successfully Updated from GitHub!**\n\n"
+                f"📝 **Commit:** `{latest_commit_msg}`\n"
+                f"🔹 **Branch:** `{active_branch}`\n\n"
+                f"⚙️ Restarting bot...",
+                parse_mode="Markdown"
+            )
+
+        # 8. Clean OS Process Replacement
         os.execv(sys.executable, [sys.executable, str(repo_dir / "main.py")])
+
     except Exception as e:
-        await status_msg.edit_text(f"❌ **Update Failed:**\n`{str(e)}`", parse_mode="Markdown")
+        await status_msg.edit_text(f"❌ **Update Failed:**\n```\n{str(e)}\n```", parse_mode="Markdown")
 
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).concurrent_updates(True).build()
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("settings", settings_command))
     app.add_handler(CommandHandler("rules", rules_command))
+    app.add_handler(CommandHandler("translate", translate_command))
     app.add_handler(CommandHandler("staff", staff_command))
     app.add_handler(CommandHandler("me", me_command))
     app.add_handler(CommandHandler("update", update_command))
