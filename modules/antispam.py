@@ -1,14 +1,12 @@
 import re
-from database import get_config, save_config
-from utils import create_btn, make_penalty_buttons, fast_edit, InlineKeyboardMarkup, parse_time_duration
+import time
+from telegram import Update, InlineKeyboardMarkup, ChatPermissions
+from database import get_config, save_config, get_user_warns, set_user_warns
+from utils import create_btn, make_penalty_buttons, fast_edit
 
 # Custom Duration Parser for Anti-Spam
 def parse_duration_smart(text: str) -> int:
     raw = text.strip().lower()
-    valid_units = ['sec', 'second', 'secs', 'seconds', 'min', 'mins', 'minute', 'minutes', 
-                   'hr', 'hrs', 'hour', 'hours', 'day', 'days', 'month', 'months', 
-                   'yr', 'yrs', 'year', 'years', 's', 'm', 'h', 'd', 'mo', 'y']
-    
     matches = re.findall(r'(\d+)\s*([a-zA-Z]+)', raw)
     if not matches:
         return 0
@@ -129,7 +127,6 @@ def get_sub_category_keyboard(cid: int, mode_type: str, selected_cat: str):
     p = cfg.get(f"{key_prefix}_pen", "Off")
     del_icon = "✔️" if cfg.get(f"{key_prefix}_del", False) else "✖️"
 
-    # Category Selection Row
     def mark(cat_name, label):
         return f"» {label} «" if selected_cat == cat_name else label
 
@@ -214,8 +211,7 @@ def get_global_whitelist_text(cid: int):
 async def handle_antispam_callbacks(query, data: str, cid: int, user, user_states):
     cfg = get_config(cid)
 
-    # Main Router
-    if data.startswith("as_main_"):
+    if data.startswith("as_main_") or data.startswith("cfg_view_antispam_") or data.startswith("aspam_main_"):
         user_states.pop((cid, user.id), None)
         await fast_edit(query, get_antispam_main_text(), get_antispam_main_keyboard(cid))
     
@@ -271,6 +267,27 @@ async def handle_antispam_callbacks(query, data: str, cid: int, user, user_state
         cfg["as_tot_delete"] = not cfg.get("as_tot_delete", False)
         save_config(cid, cfg)
         await fast_edit(query, get_totlinks_text(cid), get_totlinks_keyboard(cid))
+    elif data.startswith("astotset_dur_"):
+        ptype = data.split("_")[2]
+        user_states[(cid, user.id)] = f"awaiting_as_tot_dur_{ptype}"
+        dur_str = cfg.get("as_tot_duration_str", "Off")
+        text = (
+            f"Send now the duration of the chosen punishment ({ptype})\n\n"
+            f"<b>Minimum:</b> 30 seconds\n<b>Maximum:</b> 365 days\n\n"
+            f"<b>Example of format:</b> 10 min, 3 months, 2 years, 30s\n\n"
+            f"<b>Current duration:</b> {dur_str}"
+        )
+        kb = [
+            [create_btn("0️⃣ Remove duration", callback_data=f"astotrem_dur_{cid}")],
+            [create_btn("❌ Cancel", callback_data=f"as_totlinks_{cid}", style="danger")]
+        ]
+        await fast_edit(query, text, InlineKeyboardMarkup(kb))
+    elif data.startswith("astotrem_dur_"):
+        cfg["as_tot_duration_sec"] = 0
+        cfg["as_tot_duration_str"] = "Off"
+        save_config(cid, cfg)
+        await query.answer("Duration removed!")
+        await fast_edit(query, get_totlinks_text(cid), get_totlinks_keyboard(cid))
 
     # Quote & Forwarding
     elif data.startswith("as_quote_"):
@@ -296,7 +313,7 @@ async def handle_antispam_callbacks(query, data: str, cid: int, user, user_state
         await fast_edit(query, get_sub_category_text(cid, mode_type), get_sub_category_keyboard(cid, mode_type, selected_cat))
 
     # Exceptions & Whitelist
-    elif data.startswith("as_exc_"):
+    elif data.startswith("as_exc_") or data.startswith("asexc_main_"):
         await fast_edit(query, get_exceptions_text(), get_exceptions_keyboard(cid))
     elif data.startswith("asexc_show_"):
         wl = cfg.get("as_whitelist", [])
@@ -335,22 +352,19 @@ async def handle_antispam_text_state(update, context, user_states):
         return False
 
     state = user_states.get(state_key)
-    if not state or not (state.startswith("awaiting_as_tg_dur_") or state.startswith("awaiting_as_wl_")):
+    if not state or not (state.startswith("awaiting_as_tg_dur_") or state.startswith("awaiting_as_tot_dur_") or state.startswith("awaiting_as_wl_")):
         return False
 
     text = msg.text or ""
     cfg = get_config(chat_id)
 
-    # 1. Handling Duration
+    # 1. Handling Telegram links Duration
     if state.startswith("awaiting_as_tg_dur_"):
         parsed_sec = parse_duration_smart(text)
         if parsed_sec < 30:
             kb = [[create_btn("❌ Cancel", callback_data=f"as_tglinks_{chat_id}", style="danger")]]
             await msg.reply_text(
-                "❌ <b>Invalid duration format!</b>\n"
-                "Minimum duration is 30 seconds.\n"
-                "<i>Example:</i> <code>10 min</code>, <code>3 months</code>, <code>2 years</code>, <code>30s</code>\n\n"
-                "Please try again:",
+                "❌ <b>Invalid duration format!</b>\nMinimum duration is 30 seconds.\n<i>Example:</i> <code>10 min</code>, <code>3 months</code>, <code>2 years</code>, <code>30s</code>\n\nPlease try again:",
                 reply_markup=InlineKeyboardMarkup(kb),
                 parse_mode="HTML"
             )
@@ -373,7 +387,36 @@ async def handle_antispam_text_state(update, context, user_states):
         )
         return True
 
-    # 2. Handling Whitelist Add
+    # 2. Handling Total links Duration
+    elif state.startswith("awaiting_as_tot_dur_"):
+        parsed_sec = parse_duration_smart(text)
+        if parsed_sec < 30:
+            kb = [[create_btn("❌ Cancel", callback_data=f"as_totlinks_{chat_id}", style="danger")]]
+            await msg.reply_text(
+                "❌ <b>Invalid duration format!</b>\nMinimum duration is 30 seconds.\n<i>Example:</i> <code>10 min</code>, <code>3 months</code>, <code>2 years</code>, <code>30s</code>\n\nPlease try again:",
+                reply_markup=InlineKeyboardMarkup(kb),
+                parse_mode="HTML"
+            )
+            return True
+
+        user_states.pop(state_key, None)
+        cfg["as_tot_duration_sec"] = parsed_sec
+        cfg["as_tot_duration_str"] = text.strip()
+        save_config(chat_id, cfg)
+
+        try:
+            await msg.delete()
+        except Exception:
+            pass
+
+        await msg.reply_text(
+            f"✅ <b>Total links duration set to: {text.strip()}</b>\n\n" + get_totlinks_text(chat_id),
+            reply_markup=get_totlinks_keyboard(chat_id),
+            parse_mode="HTML"
+        )
+        return True
+
+    # 3. Handling Whitelist Add
     elif state == "awaiting_as_wl_add":
         user_states.pop(state_key, None)
         wl = cfg.get("as_whitelist", [])
@@ -385,7 +428,7 @@ async def handle_antispam_text_state(update, context, user_states):
         await msg.reply_text(f"✅ <code>{clean_item}</code> added to Whitelist!", reply_markup=get_exceptions_keyboard(chat_id), parse_mode="HTML")
         return True
 
-    # 3. Handling Whitelist Remove
+    # 4. Handling Whitelist Remove
     elif state == "awaiting_as_wl_rem":
         user_states.pop(state_key, None)
         wl = cfg.get("as_whitelist", [])
@@ -398,5 +441,113 @@ async def handle_antispam_text_state(update, context, user_states):
         else:
             await msg.reply_text(f"❌ <code>{clean_item}</code> Whitelist me nahi mila.", reply_markup=get_exceptions_keyboard(chat_id), parse_mode="HTML")
         return True
+
+    return False
+
+# --- 8. ACTUAL PUNISHMENT EXECUTOR (MUTE / BAN / KICK / WARN with Exact Duration) ---
+async def execute_antispam_penalty(context, chat_id: int, user, penalty: str, duration_sec: int, reason: str):
+    if penalty == "Off" or not penalty:
+        return
+
+    until_time = int(time.time() + duration_sec) if duration_sec > 0 else 0
+
+    try:
+        if penalty == "Mute":
+            permissions = ChatPermissions(can_send_messages=False)
+            if until_time > 0:
+                await context.bot.restrict_chat_member(chat_id, user.id, permissions=permissions, until_date=until_time)
+                await context.bot.send_message(chat_id, f"🔇 {user.mention_html()} muted for <b>{duration_sec}s</b> ({reason}).", parse_mode="HTML")
+            else:
+                await context.bot.restrict_chat_member(chat_id, user.id, permissions=permissions)
+                await context.bot.send_message(chat_id, f"🔇 {user.mention_html()} muted permanently ({reason}).", parse_mode="HTML")
+
+        elif penalty == "Ban":
+            if until_time > 0:
+                await context.bot.ban_chat_member(chat_id, user.id, until_date=until_time)
+                await context.bot.send_message(chat_id, f"🚫 {user.mention_html()} banned for <b>{duration_sec}s</b> ({reason}).", parse_mode="HTML")
+            else:
+                await context.bot.ban_chat_member(chat_id, user.id)
+                await context.bot.send_message(chat_id, f"🚫 {user.mention_html()} banned permanently ({reason}).", parse_mode="HTML")
+
+        elif penalty == "Kick":
+            await context.bot.ban_chat_member(chat_id, user.id)
+            await context.bot.unban_chat_member(chat_id, user.id)
+            await context.bot.send_message(chat_id, f"👢 {user.mention_html()} kicked ({reason}).", parse_mode="HTML")
+
+        elif penalty == "Warn":
+            warns = get_user_warns(chat_id, user.id) + 1
+            set_user_warns(chat_id, user.id, warns)
+            await context.bot.send_message(chat_id, f"⚠️ {user.mention_html()} warned ({warns}/3) for {reason}.", parse_mode="HTML")
+            if warns >= 3:
+                set_user_warns(chat_id, user.id, 0)
+                await context.bot.ban_chat_member(chat_id, user.id)
+                await context.bot.send_message(chat_id, f"🚫 {user.mention_html()} banned (Exceeded max warnings).", parse_mode="HTML")
+
+    except Exception as e:
+        print(f"Error executing penalty: {e}")
+
+# --- 9. MESSAGE SCANNER FOR SPAM DETECTION ---
+async def inspect_antispam_message(update: Update, context) -> bool:
+    msg = update.effective_message
+    chat = update.effective_chat
+    user = update.effective_user
+
+    if not msg or not chat or not user or chat.type == "private":
+        return False
+
+    from utils import is_user_admin
+    if await is_user_admin(chat.id, user.id, context):
+        return False
+
+    cfg = get_config(chat.id)
+    text = (msg.text or msg.caption or "")
+    entities = msg.entities or msg.caption_entities or []
+
+    # Whitelist check
+    whitelist = cfg.get("as_whitelist", [])
+    for item in whitelist:
+        if item.lower() in text.lower():
+            return False
+
+    # 1. Check Total Links Block
+    tot_penalty = cfg.get("as_tot_penalty", "Off")
+    if tot_penalty != "Off":
+        has_url = any(e.type in ["url", "text_link"] for e in entities) or re.search(r'https?://[^\s]+', text)
+        if has_url:
+            if cfg.get("as_tot_delete", False):
+                try:
+                    await msg.delete()
+                except Exception:
+                    pass
+            dur = cfg.get("as_tot_duration_sec", 0)
+            await execute_antispam_penalty(context, chat.id, user, tot_penalty, dur, "Sending external link")
+            return True
+
+    # 2. Check Telegram Links
+    tg_penalty = cfg.get("as_tg_penalty", "Off")
+    if tg_penalty != "Off":
+        has_tg = "t.me/" in text or "telegram.me/" in text or (cfg.get("as_tg_username", False) and "@" in text)
+        if has_tg:
+            if cfg.get("as_tg_delete", False):
+                try:
+                    await msg.delete()
+                except Exception:
+                    pass
+            dur = cfg.get("as_tg_duration_sec", 0)
+            await execute_antispam_penalty(context, chat.id, user, tg_penalty, dur, "Sending Telegram link/username")
+            return True
+
+    # 3. Check Forwarding
+    if msg.forward_from_chat or msg.forward_from:
+        fwd_cat = "chan" if (msg.forward_from_chat and msg.forward_from_chat.type == "channel") else "grp"
+        fwd_pen = cfg.get(f"as_fwd_{fwd_cat}_pen", "Off")
+        if fwd_pen != "Off":
+            if cfg.get(f"as_fwd_{fwd_cat}_del", False):
+                try:
+                    await msg.delete()
+                except Exception:
+                    pass
+            await execute_antispam_penalty(context, chat.id, user, fwd_pen, 0, f"Forwarding from {fwd_cat}")
+            return True
 
     return False
