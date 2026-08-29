@@ -302,49 +302,40 @@ async def me_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(info, parse_mode="HTML")
 
+# FULL ROBUST FORCE UPDATE COMMAND (Syncs modules & main.py completely)
 async def update_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in OWNER_IDS:
         return
     
-    status_msg = await update.message.reply_text("🔄 **Checking GitHub for updates...**", parse_mode="Markdown")
+    status_msg = await update.message.reply_text("🔄 **Force syncing all files from GitHub...**", parse_mode="Markdown")
     repo_dir = Path(__file__).resolve().parent
 
     try:
-        subprocess.run(["git", "stash"], cwd=repo_dir, capture_output=True, text=True)
+        # Clear local stash conflicts
+        subprocess.run(["git", "stash", "--all"], cwd=repo_dir, capture_output=True, text=True)
+        
         branch_proc = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=repo_dir, capture_output=True, text=True, check=True)
         active_branch = branch_proc.stdout.strip() or "main"
 
-        old_hash_proc = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo_dir, capture_output=True, text=True, check=True)
-        old_hash = old_hash_proc.stdout.strip()
-
-        subprocess.run(["git", "fetch", "--all"], cwd=repo_dir, capture_output=True, text=True, check=True)
+        # Force reset entire repository including subfolders (modules/) to match origin
+        subprocess.run(["git", "fetch", "--all", "--prune"], cwd=repo_dir, capture_output=True, text=True, check=True)
         subprocess.run(["git", "reset", "--hard", f"origin/{active_branch}"], cwd=repo_dir, capture_output=True, text=True, check=True)
-        
-        pull_proc = subprocess.run(["git", "pull", "origin", active_branch], cwd=repo_dir, capture_output=True, text=True, check=True)
-        pull_output = pull_proc.stdout.strip()
-
-        new_hash_proc = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo_dir, capture_output=True, text=True, check=True)
-        new_hash = new_hash_proc.stdout.strip()
+        subprocess.run(["git", "clean", "-fd"], cwd=repo_dir, capture_output=True, text=True, check=True)
 
         log_proc = subprocess.run(["git", "log", "-1", "--pretty=format:%s (%h)"], cwd=repo_dir, capture_output=True, text=True, check=True)
         latest_commit_msg = log_proc.stdout.strip()
 
+        # Clean python bytecode cache
         for pyc_dir in repo_dir.rglob("__pycache__"):
             shutil.rmtree(pyc_dir, ignore_errors=True)
 
-        if old_hash == new_hash:
-            await status_msg.edit_text(
-                f"✅ **Already up-to-date!**\nLatest commit: `{latest_commit_msg}`\n\n🔄 Restarting engine...",
-                parse_mode="Markdown"
-            )
-        else:
-            await status_msg.edit_text(
-                f"🚀 **Successfully Updated from GitHub!**\n\n"
-                f"📝 **Commit:** `{latest_commit_msg}`\n"
-                f"🔹 **Branch:** `{active_branch}`\n\n"
-                f"⚙️ Restarting bot...",
-                parse_mode="Markdown"
-            )
+        await status_msg.edit_text(
+            f"🚀 **Successfully Synced & Updated!**\n\n"
+            f"📝 **Latest Commit:** `{latest_commit_msg}`\n"
+            f"🔹 **Branch:** `{active_branch}`\n\n"
+            f"⚙️ Restarting bot cleanly...",
+            parse_mode="Markdown"
+        )
 
         os.execv(sys.executable, [sys.executable, str(repo_dir / "main.py")])
 
