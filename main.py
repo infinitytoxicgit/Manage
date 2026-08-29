@@ -22,7 +22,7 @@ from utils import (
 from modules.settings import get_page1_settings_keyboard, get_page2_settings_keyboard
 from modules.welcome import handle_welcome_callbacks
 from modules.goodbye import handle_goodbye_callbacks
-from modules.antiflood import handle_antiflood_callbacks, get_antiflood_text, get_antiflood_main_keyboard
+from modules.antiflood import handle_antiflood_callbacks, handle_antiflood_text_state
 from modules.alphabets import handle_alphabets_callbacks
 from modules.captcha import handle_captcha_callbacks
 from modules.checks import handle_checks_callbacks
@@ -161,7 +161,11 @@ async def interactive_state_processor(update: Update, context: ContextTypes.DEFA
         user_states.pop(state_key, None)
         return False
 
+    # Route antiflood duration directly to antiflood module
     state = user_states.get(state_key)
+    if state and state.startswith("awaiting_flood_dur_"):
+        return await handle_antiflood_text_state(update, context, user_states)
+
     cfg = get_config(chat_id)
     msg = update.message
     text = msg.text or msg.caption or ""
@@ -204,67 +208,6 @@ async def interactive_state_processor(update: Update, context: ContextTypes.DEFA
         btn_list = kb.inline_keyboard if kb else []
         final_kb = list(btn_list) + [[create_btn("⬅️ Back", callback_data=f"reg_custom_msg_{chat_id}")]]
         await msg.reply_text(f"<code>{html.escape(text)}</code>", reply_markup=InlineKeyboardMarkup(final_kb), parse_mode="HTML")
-        return True
-
-    elif state.startswith("awaiting_flood_dur_"):
-        raw_t = text.strip().lower()
-        
-        # Strict unit validation to block random text like '30 hot'
-        valid_units = ['sec', 'second', 'secs', 'seconds', 'min', 'mins', 'minute', 'minutes', 'hr', 'hrs', 'hour', 'hours', 'day', 'days', 'month', 'months', 'yr', 'yrs', 'year', 'years', 's', 'm', 'h', 'd', 'mo', 'y']
-        has_valid_unit = any(unit in raw_t for unit in valid_units)
-        
-        parsed_sec = parse_time_duration(raw_t)
-        
-        if parsed_sec <= 0 or not has_valid_unit:
-            match_num = re.search(r'\d+', raw_t)
-            if match_num and has_valid_unit:
-                val = int(match_num.group())
-                if 's' in raw_t: parsed_sec = val
-                elif 'm' in raw_t: parsed_sec = val * 60
-                elif 'h' in raw_t: parsed_sec = val * 3600
-                elif 'd' in raw_t: parsed_sec = val * 86400
-                elif 'mo' in raw_t: parsed_sec = val * 2592000
-                elif 'y' in raw_t: parsed_sec = val * 31536000
-
-        # If invalid text or less than 30 seconds, reject it cleanly
-        if parsed_sec < 30 or not has_valid_unit:
-            await msg.reply_text(
-                "❌ <b>Invalid duration format!</b>\n"
-                "Minimum duration is 30 seconds.\n"
-                "<i>Example:</i> <code>10 min</code>, <code>3 months</code>, <code>2 years</code>, <code>30s</code>\n\n"
-                "Please try again:"
-            , parse_mode="HTML")
-            return True
-
-        # Successful save
-        user_states.pop(state_key, None)
-        cfg["flood_duration_sec"] = parsed_sec
-        cfg["flood_duration_str"] = text.strip()
-        save_config(chat_id, cfg)
-
-        try:
-            await msg.delete()
-        except Exception:
-            pass
-
-        if msg.reply_to_message:
-            try:
-                await context.bot.edit_message_text(
-                    chat_id=chat_id,
-                    message_id=msg.reply_to_message.message_id,
-                    text=f"✅ Antiflood duration successfully set to <b>{text.strip()}</b>!\n\n{get_antiflood_text(chat_id)}",
-                    reply_markup=get_antiflood_main_keyboard(chat_id),
-                    parse_mode="HTML"
-                )
-                return True
-            except Exception:
-                pass
-
-        await msg.reply_text(
-            f"✅ Antiflood duration successfully set to <b>{text.strip()}</b>!",
-            reply_markup=get_antiflood_main_keyboard(chat_id),
-            parse_mode="HTML"
-        )
         return True
 
     return False
