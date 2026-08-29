@@ -17,6 +17,7 @@ def get_group_tz_name(cid: int) -> str:
     cfg = get_config(cid)
     return cfg.get("night_tz_name", "UTC")
 
+# --- 1. MAIN NIGHT MODE UI ---
 def get_night_main_keyboard(cid: int):
     cfg = get_config(cid)
     mode = cfg.get("night_mode", "off")
@@ -69,6 +70,31 @@ def get_night_main_text(cid: int):
         f"<b>Current time:</b> {curr_time_str}"
     )
 
+# --- 2. TIME SLOT SELECTOR (0 TO 23 GRID) ---
+def get_hour_grid_keyboard(cid: int, step: str):
+    prefix = f"ngtval_{step}_"
+    kb = []
+    row = []
+    for h in range(24):
+        row.append(create_btn(str(h), callback_data=f"{prefix}{h}_{cid}"))
+        if len(row) == 5:
+            kb.append(row)
+            row = []
+    if row:
+        kb.append(row)
+    
+    kb.append([create_btn("⬅️ Back", callback_data=f"cfg_mod_night_{cid}")])
+    return InlineKeyboardMarkup(kb)
+
+def get_hour_grid_text(step: str):
+    label = "starting" if step == "start" else "ending"
+    return (
+        "<b>Night mode</b>\n"
+        "In this menu you can set an interval of hour and every day, "
+        "in that hours will be enabled the night mode.\n\n"
+        f"👉 <b>Select the {label} time:</b>"
+    )
+
 def get_timezone_keyboard(cid: int, in_pm: bool = False):
     if not in_pm:
         keyboard = [
@@ -108,6 +134,23 @@ async def handle_night_callbacks(query, data: str, cid: int, user, user_states, 
 
     elif data.startswith("ngttog_advise_"):
         cfg["night_advise"] = not cfg.get("night_advise", True)
+        save_config(cid, cfg)
+        await fast_edit(query, get_night_main_text(cid), get_night_main_keyboard(cid))
+
+    elif data.startswith("ngt_slot_start_"):
+        await fast_edit(query, get_hour_grid_text("start"), get_hour_grid_keyboard(cid, "start"))
+
+    elif data.startswith("ngtval_start_"):
+        parts = data.split("_")
+        val = int(parts[2])
+        cfg["night_start_hour"] = val
+        save_config(cid, cfg)
+        await fast_edit(query, get_hour_grid_text("end"), get_hour_grid_keyboard(cid, "end"))
+
+    elif data.startswith("ngtval_end_"):
+        parts = data.split("_")
+        val = int(parts[2])
+        cfg["night_end_hour"] = val
         save_config(cid, cfg)
         await fast_edit(query, get_night_main_text(cid), get_night_main_keyboard(cid))
 
@@ -243,3 +286,56 @@ async def handle_night_text_state(update: Update, context, user_states):
     await msg.reply_text(confirm_text, reply_markup=ReplyKeyboardRemove())
     await msg.reply_text(confirm_text, reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
     return True
+
+async def inspect_night_message(update: Update, context) -> bool:
+    msg = update.effective_message
+    chat = update.effective_chat
+    user = update.effective_user
+
+    if not msg or not chat or not user or chat.type == "private":
+        return False
+
+    if await is_user_admin(chat.id, user.id, context):
+        return False
+
+    cfg = get_config(chat.id)
+    mode = cfg.get("night_mode", "off")
+    if mode == "off":
+        return False
+
+    start_h = cfg.get("night_start_hour", 23)
+    end_h = cfg.get("night_end_hour", 9)
+    tz_offset = cfg.get("night_tz_offset", 0)
+
+    utc_now = datetime.datetime.now(datetime.timezone.utc)
+    loc_now = utc_now + datetime.timedelta(hours=tz_offset)
+    curr_hour = loc_now.hour
+
+    is_night = False
+    if start_h > end_h:
+        if curr_hour >= start_h or curr_hour < end_h:
+            is_night = True
+    else:
+        if start_h <= curr_hour < end_h:
+            is_night = True
+
+    if not is_night:
+        return False
+
+    if mode == "silence":
+        try:
+            await msg.delete()
+        except Exception:
+            pass
+        return True
+
+    elif mode == "medias":
+        has_media = bool(msg.photo or msg.video or msg.audio or msg.voice or msg.video_note or msg.document or msg.sticker or msg.animation)
+        if has_media:
+            try:
+                await msg.delete()
+            except Exception:
+                pass
+            return True
+
+    return False
