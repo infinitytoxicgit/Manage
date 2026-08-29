@@ -96,15 +96,29 @@ ALPHABET_DATA = {
 }
 
 DEFAULT_CONFIG = {
+    # Regulations
     "rules_text": "📜 <b>Group Regulations</b>\n1. Be respectful\n2. No spam or self-promotion\n3. Follow admin instructions.",
     "rules_media_id": None,
     "rules_media_type": None,
     "rules_buttons_raw": None,
 
+    # Captcha System
+    "captcha_active": False,
+    "captcha_mode": "button",  # "button" or "regulation"
+    "captcha_time_val": 180,   # seconds (default 3 min)
+    "captcha_time_label": "3 Minutes",
+    "captcha_penalty": "Mute",  # "Mute", "Ban", "Kick"
+    "captcha_delete_service": False,
+    "captcha_custom_text": None,
+    "captcha_topic_id": None,
+    "captcha_tab": None,       # None, "time", "penalty", "custom"
+
+    # Alphabets
     "alpha_active_tab": "chinese",
     "alpha_penalties": {k: "Off" for k in ALPHABET_DATA},
     "alpha_deletes": {k: False for k in ALPHABET_DATA},
 
+    # Anti-Spam
     "totallinks_penalty": "Off",
     "totallinks_delete": False,
     "tglinks_penalty": "Off",
@@ -125,6 +139,7 @@ DEFAULT_CONFIG = {
     "quote_delete": False,
     "global_whitelist_active": True,
 
+    # Welcome System
     "welcome_active": True,
     "welcome_mode": "always",
     "welcome_delete_last": False,
@@ -134,6 +149,7 @@ DEFAULT_CONFIG = {
     "welcome_buttons_raw": None,
     "welcome_topic_id": None,
 
+    # Goodbye System
     "goodbye_active": False,
     "goodbye_in_pm": False,
     "goodbye_delete_last": False,
@@ -143,6 +159,7 @@ DEFAULT_CONFIG = {
     "goodbye_buttons_raw": None,
     "goodbye_topic_id": None,
 
+    # Antiflood
     "flood_messages": 5,
     "flood_seconds": 3,
     "flood_penalty": "Off",
@@ -150,7 +167,7 @@ DEFAULT_CONFIG = {
     "flood_duration_sec": 0,
     "flood_duration_str": "Off",
 
-    "captcha": True,
+    # Security Modules
     "checks_active": False,
     "admin_tag_active": True,
     "blocks_active": False,
@@ -164,6 +181,7 @@ DEFAULT_CONFIG = {
     "auto_del_service_msgs": True,
     "bot_lang": "en",
 
+    # Page 2 Advanced
     "topic_enabled": False,
     "banned_words_list": [],
     "recurring_msgs_active": False,
@@ -175,6 +193,7 @@ DEFAULT_CONFIG = {
     "channel_mgmt_active": False,
     "log_channel_id": None,
 
+    # Permissions
     "perm_staff": "everyone",
     "perm_rules": "staff",
     "perm_me": "private",
@@ -189,6 +208,7 @@ link_drafts = {}
 active_created_links = {}
 last_welcome_messages = {}
 last_goodbye_messages = {}
+pending_captchas = {}  # {(chat_id, user_id): {"message_id": id, "expire_time": time, "penalty": str}}
 flood_tracker = {}
 
 GLOBAL_WHITELIST_ITEMS = {"telegram.org", "t.me/telegram", "durov", "fragment.com"}
@@ -207,10 +227,6 @@ def get_config(chat_id: int):
         cfg = DEFAULT_CONFIG.copy()
         loaded = json.loads(row[0])
         cfg.update(loaded)
-        if "alpha_penalties" not in cfg:
-            cfg["alpha_penalties"] = {k: "Off" for k in ALPHABET_DATA}
-        if "alpha_deletes" not in cfg:
-            cfg["alpha_deletes"] = {k: False for k in ALPHABET_DATA}
     else:
         cfg = DEFAULT_CONFIG.copy()
         save_config(chat_id, cfg)
@@ -279,43 +295,8 @@ def is_first_join(chat_id: int, user_id: int) -> bool:
     conn.close()
     return False
 
-def get_link_draft(chat_id: int, user_id: int):
-    key = (chat_id, user_id)
-    if key not in link_drafts:
-        link_drafts[key] = {"active_tab": None, "limit": 0, "until_seconds": 0, "approval": False}
-    return link_drafts[key]
-
-def parse_time_duration(text: str) -> int:
-    text = text.lower().strip()
-    patterns = {
-        "year": 31536000, "y": 31536000,
-        "month": 2592000, "mo": 2592000,
-        "week": 604800, "w": 604800,
-        "day": 86400, "d": 86400,
-        "hour": 3600, "h": 3600,
-        "minute": 60, "min": 60, "m": 60,
-        "second": 1, "sec": 1, "s": 1
-    }
-    total_sec = 0
-    matches = re.findall(r"(\d+)\s*([a-zA-Z]+)", text)
-    if matches:
-        for val, unit in matches:
-            val = int(val)
-            for k, sec in patterns.items():
-                if unit.startswith(k):
-                    total_sec += val * sec
-                    break
-    elif text.isdigit():
-        total_sec = int(text)
-
-    return total_sec
-
-# ----------------- NATIVE COLOR BUTTON CREATOR ----------------- #
+# ----------------- BUTTON CREATOR ----------------- #
 def create_btn(text: str, callback_data: str = None, url: str = None, style: str = None):
-    """
-    Passes style directly for styled clients (success / primary / danger)
-    without prepending fake emoji boxes.
-    """
     try:
         if url:
             return InlineKeyboardButton(text=text, url=url)
@@ -328,19 +309,6 @@ def create_btn(text: str, callback_data: str = None, url: str = None, style: str
     return InlineKeyboardButton(text=text, callback_data=callback_data)
 
 # ----------------- PERMISSION CHECKERS ----------------- #
-async def check_admin_invite_permission(chat_id: int, user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    if user_id in OWNER_IDS:
-        return True
-    try:
-        member = await context.bot.get_chat_member(chat_id, user_id)
-        if member.status == "creator":
-            return True
-        if member.status == "administrator":
-            return getattr(member, 'can_invite_users', False)
-        return False
-    except Exception:
-        return False
-
 async def is_user_admin(chat_id: int, user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
     if user_id in OWNER_IDS:
         return True
@@ -372,160 +340,120 @@ async def fast_edit(query, text: str, keyboard: InlineKeyboardMarkup):
     except Exception as e:
         logger.error(f"Fast edit error: {e}")
 
-# ----------------- TEMPLATE & HTML SANITIZER ----------------- #
-def sanitize_html_text(raw: str) -> str:
-    raw = re.sub(r"&(?!amp;|lt;|gt;|quot;|#\d+;)", "&amp;", raw)
-    return raw
-
-def format_template(text: str, user, chat, cfg: dict):
-    if not text:
-        return ""
-    now = datetime.datetime.now()
-    first_name = user.first_name or ""
-    last_name = user.last_name or ""
-    full_name = f"{first_name} {last_name}".strip()
-    mention_link = f'<a href="tg://user?id={user.id}">{html.escape(first_name)}</a>'
-    user_handle = f"@{user.username}" if user.username else mention_link
-
-    group_title = html.escape(chat.title) if chat and chat.title else "Group"
-    rules_content = cfg.get("rules_text", "")
-
-    replacements = {
-        "{ID}": str(user.id),
-        "{NAME}": html.escape(first_name),
-        "{SURNAME}": html.escape(last_name),
-        "{NAMESURNAME}": html.escape(full_name),
-        "{LANG}": html.escape(user.language_code or "en"),
-        "{DATE}": now.strftime("%d/%m/%Y"),
-        "{TIME}": now.strftime("%H:%M:%S"),
-        "{WEEKDAY}": now.strftime("%A"),
-        "{MENTION}": mention_link,
-        "{USERNAME}": user_handle,
-        "{GROUPNAME}": group_title,
-        "{RULES}": rules_content
-    }
-
-    formatted = text
-    for placeholder, val in replacements.items():
-        formatted = formatted.replace(placeholder, str(val))
-    return sanitize_html_text(formatted)
-
-# ----------------- SMART BUTTONS PARSER ----------------- #
-def parse_custom_buttons(raw_data: str, chat_id: int):
-    if not raw_data:
-        return None
-    keyboard = []
-    for line in raw_data.strip().splitlines():
-        row = []
-        for part in line.split("&&"):
-            if "-" not in part:
-                continue
-            title, action = part.split("-", 1)
-            title, action = title.strip(), action.strip()
-
-            if action.lower() == "rules":
-                row.append(create_btn(title, callback_data=f"show_rules_popup_{chat_id}"))
-            elif action.lower().startswith("popup:") or action.lower().startswith("alert:"):
-                txt = action.split(":", 1)[1].strip()
-                row.append(create_btn(title, callback_data=f"popalert_{txt[:40]}"))
-            elif action.lower().startswith("share:"):
-                share_txt = action.split(":", 1)[1].strip()
-                row.append(create_btn(title, url=f"https://t.me/share/url?url={urllib.parse.quote(share_txt)}"))
-            elif action.lower().startswith("copy:"):
-                copy_txt = action.split(":", 1)[1].strip()
-                row.append(create_btn(title, callback_data=f"popcopy_{copy_txt[:40]}"))
-            else:
-                if action.startswith("@"):
-                    link = f"https://t.me/{action[1:]}"
-                elif action.startswith(("http://", "https://", "tg://")):
-                    link = action
-                elif action.startswith("t.me/"):
-                    link = f"https://{action}"
-                else:
-                    link = f"https://{action}"
-                row.append(create_btn(f"{title} ↗", url=link))
-        if row:
-            keyboard.append(row)
-    return InlineKeyboardMarkup(keyboard) if keyboard else None
-
-# ----------------- PUNISHMENT BUTTON BUILDER (CLEAN SUCCESS HIGHLIGHT) ----------------- #
-def make_penalty_buttons(prefix: str, current_penalty: str, chat_id: int):
-    def get_btn(label, val):
-        is_selected = (current_penalty == val)
-        btn_style = "success" if is_selected else None
-        return create_btn(label, callback_data=f"{prefix}pen_{val}_{chat_id}", style=btn_style)
-
-    row1 = [
-        get_btn("❌ Off", "Off"),
-        get_btn("! Warn", "Warn"),
-        get_btn("! Kick", "Kick")
-    ]
-    row2 = [
-        get_btn("🔊 Mute", "Mute"),
-        get_btn("🚷 Ban", "Ban")
-    ]
-    return row1, row2
-
-# ----------------- ALPHABETS UI & BUILDER ----------------- #
-def get_alphabets_text(chat_id: int):
+# ----------------- CAPTCHA UI & TEXT ENGINE ----------------- #
+def get_captcha_text(chat_id: int):
     cfg = get_config(chat_id)
-    penalties = cfg.get("alpha_penalties", {})
-    deletes = cfg.get("alpha_deletes", {})
+    is_active = cfg.get("captcha_active", False)
 
-    lines = [
-        "🕉 <b>Alphabets</b>",
-        "Select punishment for any user who send messages written in certain alphabets.\n"
+    base = (
+        "🧠 <b>Captcha</b>\n"
+        "By activating the captcha, when a user enters the group he will not be able to send messages "
+        "until he has confirmed that he is not a robot.\n\n"
+        "🕑 You can also decide to set a PUNISHMENT down below for those who will not resolve the captcha "
+        "within the desired time and whether or not to clear the service message in case of failure.\n\n"
+    )
+
+    if not is_active:
+        return base + "<b>Status:</b> Off ❌"
+
+    mode = cfg.get("captcha_mode", "button")
+    time_label = cfg.get("captcha_time_label", "3 Minutes")
+    penalty = cfg.get("captcha_penalty", "Mute")
+    del_service = "Active" if cfg.get("captcha_delete_service") else "Off"
+
+    if mode == "button":
+        mode_desc = "🗂 <b>Mode:</b> Button\n └ <i>The user will have to press a simple button to be unmuted.\nIt's a simple but less secure captcha.</i>"
+    else:
+        mode_desc = (
+            "🗂 <b>Mode:</b> Regulation\n └ <i>The group regulation is shown to the new user and can decide whether "
+            "to accept it or not. If he decides not to accept it or if he does not accept it in time, the captcha "
+            "punishment will be triggered.</i>"
+        )
+
+    details = (
+        "<b>Status:</b> Active ✅\n"
+        f"🕒 <b>Time:</b> {time_label}\n"
+        f"⛔️ <b>Penalty:</b> {penalty}\n"
+        f"{mode_desc}\n"
+        f"🗑 <b>Delete service message:</b> {del_service}"
+    )
+    return base + details
+
+def get_captcha_keyboard(chat_id: int):
+    cfg = get_config(chat_id)
+    is_active = cfg.get("captcha_active", False)
+
+    if not is_active:
+        keyboard = [
+            [create_btn("✅ Activate", callback_data=f"cpt_toggle_on_{chat_id}", style="success")],
+            [create_btn("⬅️ Back", callback_data=f"cfg_page_1_{chat_id}")]
+        ]
+        return InlineKeyboardMarkup(keyboard)
+
+    tab = cfg.get("captcha_tab")
+    cur_time_val = cfg.get("captcha_time_val", 180)
+    cur_penalty = cfg.get("captcha_penalty", "Mute")
+    del_icon = "✔️" if cfg.get("captcha_delete_service") else "✖️"
+
+    keyboard = [
+        [create_btn("❌ Turn off ❌", callback_data=f"cpt_toggle_off_{chat_id}", style="danger")],
+        [create_btn("📦 Mode 📦", callback_data=f"cpt_switch_mode_{chat_id}")]
     ]
 
-    for key, data in ALPHABET_DATA.items():
-        pen = penalties.get(key, "Off")
-        del_on = deletes.get(key, False)
-        
-        status_str = "Deletion" if (pen == "Off" and del_on) else pen
-        lines.append(f"{data['icon']} <b>{data['name']}</b> (<a href=\"{data['wiki']}\">?</a>)")
-        lines.append(f"  └ Status: {status_str}\n")
+    # Time Accordion Tab
+    if tab == "time":
+        keyboard.append([create_btn("» 🕒 Time (Minutes) 🕒 «", callback_data=f"cpt_tab_time_{chat_id}", style="primary")])
+        # Time Grid Options: 15s, 30s, 1m, 2m, 3m, 5m, 10m, 15m, 20m, 30m
+        times_row1 = [
+            create_btn(f"15 sec.{' ✅' if cur_time_val==15 else ''}", callback_data=f"cpt_set_t_15_{chat_id}"),
+            create_btn(f"30 sec.{' ✅' if cur_time_val==30 else ''}", callback_data=f"cpt_set_t_30_{chat_id}")
+        ]
+        times_row2 = [
+            create_btn(f"1{' ✅' if cur_time_val==60 else ''}", callback_data=f"cpt_set_t_60_{chat_id}"),
+            create_btn(f"2{' ✅' if cur_time_val==120 else ''}", callback_data=f"cpt_set_t_120_{chat_id}"),
+            create_btn(f"3{' ✅' if cur_time_val==180 else ''}", callback_data=f"cpt_set_t_180_{chat_id}"),
+            create_btn(f"5{' ✅' if cur_time_val==300 else ''}", callback_data=f"cpt_set_t_300_{chat_id}")
+        ]
+        times_row3 = [
+            create_btn(f"10{' ✅' if cur_time_val==600 else ''}", callback_data=f"cpt_set_t_600_{chat_id}"),
+            create_btn(f"15{' ✅' if cur_time_val==900 else ''}", callback_data=f"cpt_set_t_900_{chat_id}"),
+            create_btn(f"20{' ✅' if cur_time_val==1200 else ''}", callback_data=f"cpt_set_t_1200_{chat_id}"),
+            create_btn(f"30{' ✅' if cur_time_val==1800 else ''}", callback_data=f"cpt_set_t_1800_{chat_id}")
+        ]
+        keyboard.extend([times_row1, times_row2, times_row3])
+    else:
+        keyboard.append([create_btn("🕒 Time 🕒", callback_data=f"cpt_tab_time_{chat_id}")])
 
-    return "\n".join(lines)
+    # Penalty Accordion Tab
+    if tab == "penalty":
+        keyboard.append([create_btn("» ⛔️ Penalty ⛔️ «", callback_data=f"cpt_tab_penalty_{chat_id}", style="primary")])
+        p_row1 = [create_btn(f"🚷 Ban{' ✅' if cur_penalty=='Ban' else ''}", callback_data=f"cpt_set_p_Ban_{chat_id}")]
+        p_row2 = [
+            create_btn(f"🔊 Mute{' ✅' if cur_penalty=='Mute' else ''}", callback_data=f"cpt_set_p_Mute_{chat_id}"),
+            create_btn(f"❗ Kick{' ✅' if cur_penalty=='Kick' else ''}", callback_data=f"cpt_set_p_Kick_{chat_id}")
+        ]
+        keyboard.extend([p_row1, p_row2])
+    else:
+        keyboard.append([create_btn("⛔️ Penalty ⛔️", callback_data=f"cpt_tab_penalty_{chat_id}")])
 
-def get_alphabets_keyboard(chat_id: int):
-    cfg = get_config(chat_id)
-    cur_tab = cfg.get("alpha_active_tab", "chinese")
-    penalties = cfg.get("alpha_penalties", {})
-    deletes = cfg.get("alpha_deletes", {})
+    # Customize Message Accordion Tab
+    if tab == "custom":
+        keyboard.append([create_btn("» ✍️ Customize message ✍️ «", callback_data=f"cpt_tab_custom_{chat_id}", style="primary")])
+        keyboard.append([
+            create_btn("📄 Text", callback_data=f"cpt_set_text_{chat_id}"),
+            create_btn("👀 See", callback_data=f"cpt_see_text_{chat_id}")
+        ])
+    else:
+        keyboard.append([create_btn("✍️ Customize message ✍️", callback_data=f"cpt_tab_custom_{chat_id}")])
 
-    cur_pen = penalties.get(cur_tab, "Off")
-    cur_del = deletes.get(cur_tab, False)
-
-    # 1. Languages Matrix
-    keyboard = []
-    lang_keys = list(ALPHABET_DATA.keys())
-    
-    for i in range(0, len(lang_keys), 2):
-        row = []
-        for k in lang_keys[i:i+2]:
-            d = ALPHABET_DATA[k]
-            is_active = (cur_tab == k)
-            lbl = f"» {d['icon']} {d['name'].upper()} «" if is_active else f"{d['icon']} {d['name'].upper()}"
-            row.append(create_btn(lbl, callback_data=f"alptab_{k}_{chat_id}", style="primary" if is_active else None))
-        keyboard.append(row)
-
-    # 2. Separator
-    keyboard.append([create_btn("➖➖➖➖➖➖➖➖", callback_data="none")])
-
-    # 3. Clean Native Green Success Penalty Rows
-    r1, r2 = make_penalty_buttons("alp", cur_pen, chat_id)
-    keyboard.extend([r1, r2])
-
-    # 4. Deletion Toggle
-    del_icon = "✔️" if cur_del else "✖️"
-    keyboard.append([create_btn(f"🗑 Delete Messages {del_icon}", callback_data=f"alptog_del_{chat_id}")])
-
-    # 5. Back Button
+    # Topic & Delete Service Message
+    keyboard.append([create_btn("📁 Select a Topic 🆕", callback_data=f"cpt_topic_info_{chat_id}")])
+    keyboard.append([create_btn(f"🗑 Delete service message {del_icon}", callback_data=f"cpt_tog_delsvc_{chat_id}")])
     keyboard.append([create_btn("⬅️ Back", callback_data=f"cfg_page_1_{chat_id}")])
 
     return InlineKeyboardMarkup(keyboard)
 
-# ----------------- SETTINGS DUAL-PAGE KEYBOARDS ----------------- #
+# ----------------- MAIN SETTINGS KEYBOARDS ----------------- #
 def get_page1_settings_keyboard(chat_id: int):
     keyboard = [
         [
@@ -541,7 +469,7 @@ def get_page1_settings_keyboard(chat_id: int):
             create_btn("🕉 Alphabets", callback_data=f"cfg_view_alphabets_{chat_id}")
         ],
         [
-            create_btn("🧠 Captcha", callback_data=f"cfg_mod_captcha_{chat_id}"),
+            create_btn("🧠 Captcha", callback_data=f"cfg_view_captcha_{chat_id}"),
             create_btn("🔦 Checks", callback_data=f"cfg_mod_checks_{chat_id}")
         ],
         [
@@ -601,7 +529,7 @@ async def execute_punishment(penalty: str, should_delete: bool, update: Update, 
     user = update.effective_user
     msg = update.message
 
-    if should_delete:
+    if should_delete and msg:
         try:
             await msg.delete()
         except Exception:
@@ -655,6 +583,47 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
     chat = query.message.chat
     user = query.from_user
 
+    # CAPTCHA USER VERIFICATION BUTTONS (CLICKED BY NEW USERS)
+    if data.startswith("cptsolve_"):
+        parts = data.split("_")
+        target_uid = int(parts[1])
+        cid = int(parts[2])
+
+        if user.id != target_uid:
+            try:
+                await query.answer("Yeh captcha aapke liye nahi hai!", show_alert=True)
+            except Exception:
+                pass
+            return
+
+        cfg = get_config(cid)
+        # Unmute User with full permissions
+        try:
+            await context.bot.restrict_chat_member(
+                chat_id=cid,
+                user_id=user.id,
+                permissions=ChatPermissions(
+                    can_send_messages=True,
+                    can_send_media_messages=True,
+                    can_send_polls=True,
+                    can_send_other_messages=True,
+                    can_add_web_page_previews=True
+                )
+            )
+        except Exception:
+            pass
+
+        pending_captchas.pop((cid, user.id), None)
+        try:
+            await query.answer("✅ Verification successful! Welcome to the group.", show_alert=True)
+            if cfg.get("captcha_delete_service"):
+                await query.message.delete()
+            else:
+                await query.edit_message_text(f"✅ {user.mention_html()} verified successfully!", parse_mode="HTML")
+        except Exception:
+            pass
+        return
+
     # Generic Popups
     if data.startswith("popalert_"):
         txt = data.split("_", 1)[1]
@@ -696,7 +665,7 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
 
     cfg = get_config(chat.id)
 
-    # 1. Page Switcher
+    # 1. Main Page Switchers
     if data.startswith("cfg_page_"):
         page = data.split("_")[2]
         cid = int(data.split("_")[3])
@@ -707,73 +676,267 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
             await fast_edit(query, header_text, get_page1_settings_keyboard(cid))
         return
 
-    # 2. ALPHABETS SYSTEM HANDLERS
-    if data.startswith("cfg_view_alphabets_"):
+    # 2. CAPTCHA MODULE ROUTING
+    if data.startswith("cfg_view_captcha_"):
         cid = int(data.split("_")[3])
-        await fast_edit(query, get_alphabets_text(cid), get_alphabets_keyboard(cid))
+        user_states.pop((cid, user.id), None)
+        cfg["captcha_tab"] = None
+        save_config(cid, cfg)
+        await fast_edit(query, get_captcha_text(cid), get_captcha_keyboard(cid))
         return
 
-    if data.startswith("alptab_"):
+    if data.startswith("cpt_toggle_"):
+        action = data.split("_")[2]
+        cid = int(data.split("_")[3])
+        cfg["captcha_active"] = (action == "on")
+        cfg["captcha_tab"] = None
+        save_config(cid, cfg)
+        await fast_edit(query, get_captcha_text(cid), get_captcha_keyboard(cid))
+        return
+
+    if data.startswith("cpt_switch_mode_"):
+        cid = int(data.split("_")[3])
+        cfg["captcha_mode"] = "regulation" if cfg.get("captcha_mode") == "button" else "button"
+        save_config(cid, cfg)
+        await fast_edit(query, get_captcha_text(cid), get_captcha_keyboard(cid))
+        return
+
+    if data.startswith("cpt_tab_"):
+        tab_name = data.split("_")[2]
+        cid = int(data.split("_")[3])
+        cfg["captcha_tab"] = None if cfg.get("captcha_tab") == tab_name else tab_name
+        save_config(cid, cfg)
+        await fast_edit(query, get_captcha_text(cid), get_captcha_keyboard(cid))
+        return
+
+    if data.startswith("cpt_set_t_"):
         parts = data.split("_")
-        lang_key, cid = parts[1], int(parts[2])
-        cfg["alpha_active_tab"] = lang_key
+        sec_val, cid = int(parts[3]), int(parts[4])
+        cfg["captcha_time_val"] = sec_val
+        if sec_val < 60:
+            cfg["captcha_time_label"] = f"{sec_val} Seconds"
+        else:
+            cfg["captcha_time_label"] = f"{sec_val // 60} Minutes"
         save_config(cid, cfg)
-        await fast_edit(query, get_alphabets_text(cid), get_alphabets_keyboard(cid))
+        await fast_edit(query, get_captcha_text(cid), get_captcha_keyboard(cid))
         return
 
-    if data.startswith("alppen_"):
+    if data.startswith("cpt_set_p_"):
         parts = data.split("_")
-        pen, cid = parts[1], int(parts[2])
-        cur_tab = cfg.get("alpha_active_tab", "chinese")
-        cfg.setdefault("alpha_penalties", {})[cur_tab] = pen
+        pen_name, cid = parts[3], int(parts[4])
+        cfg["captcha_penalty"] = pen_name
         save_config(cid, cfg)
-        await fast_edit(query, get_alphabets_text(cid), get_alphabets_keyboard(cid))
+        await fast_edit(query, get_captcha_text(cid), get_captcha_keyboard(cid))
         return
 
-    if data.startswith("alptog_del_"):
-        cid = int(data.split("_")[2])
-        cur_tab = cfg.get("alpha_active_tab", "chinese")
-        cur_del = cfg.setdefault("alpha_deletes", {}).get(cur_tab, False)
-        cfg["alpha_deletes"][cur_tab] = not cur_del
+    if data.startswith("cpt_tog_delsvc_"):
+        cid = int(data.split("_")[3])
+        cfg["captcha_delete_service"] = not cfg.get("captcha_delete_service", False)
         save_config(cid, cfg)
-        await fast_edit(query, get_alphabets_text(cid), get_alphabets_keyboard(cid))
+        await fast_edit(query, get_captcha_text(cid), get_captcha_keyboard(cid))
         return
 
-    # Fallback to standard menus
-    if data.startswith("cfg_view_reg_") or data.startswith("cfg_view_welcome_") or data.startswith("cfg_view_flood_") or data.startswith("cfg_view_goodbye_"):
+    if data.startswith("cpt_set_text_"):
+        cid = int(data.split("_")[3])
+        user_states[(cid, user.id)] = "awaiting_cpt_text"
+        text = (
+            f"{user.mention_html()}, send now the custom message for Captcha!\n\n"
+            "You can use <b>HTML</b> and placeholders like {NAME}, {MENTION}, {GROUPNAME}."
+        )
+        keyboard = [
+            [create_btn("🚫 Remove message", callback_data=f"cpt_rem_text_{cid}")],
+            [create_btn("❌ Cancel", callback_data=f"cfg_view_captcha_{cid}", style="danger")]
+        ]
+        await fast_edit(query, text, InlineKeyboardMarkup(keyboard))
+        return
+
+    if data.startswith("cpt_rem_text_"):
+        cid = int(data.split("_")[3])
+        cfg["captcha_custom_text"] = None
+        save_config(cid, cfg)
+        await query.answer("Custom Captcha text removed!")
+        await fast_edit(query, get_captcha_text(cid), get_captcha_keyboard(cid))
+        return
+
+    if data.startswith("cpt_see_text_"):
+        cid = int(data.split("_")[3])
+        c_text = cfg.get("captcha_custom_text") or "Click the button below to confirm you are human."
+        await query.answer(f"Captcha Text:\n{c_text[:200]}", show_alert=True)
+        return
+
+    if data.startswith("cpt_topic_info_"):
+        cid = int(data.split("_")[3])
+        text = (
+            "📁 <b>Select a Topic</b>\n"
+            "If you use \"Topics\" in your group, you can decide which topic the bot should send this type of message in.\n\n"
+            "To do so, go to the chosen Topic and send this command:\n"
+            "<code>/topic_captcha</code>\n\n"
+            "<i>If you don't use \"Topics\", ignore this setting.</i>"
+        )
+        keyboard = [[create_btn("⬅️ Back", callback_data=f"cfg_view_captcha_{cid}")]]
+        await fast_edit(query, text, InlineKeyboardMarkup(keyboard))
+        return
+
+    # Fallback / Back to other sections
+    if data.startswith("cfg_view_alphabets_") or data.startswith("cfg_view_welcome_") or data.startswith("cfg_view_goodbye_") or data.startswith("cfg_view_reg_") or data.startswith("cfg_view_flood_"):
         cid = int(data.split("_")[3])
         text = f"⚙️ <b>Module Settings</b>\nManage configuration directly from this panel."
         kb = [[create_btn("⬅️ Back", callback_data=f"cfg_page_1_{cid}")]]
         await fast_edit(query, text, InlineKeyboardMarkup(kb))
         return
 
-# ----------------- SECURITY & MODERATION (ALPHABETS) ----------------- #
-async def security_moderator(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# ----------------- TEXT & MEDIA CAPTURE ----------------- #
+async def interactive_state_processor(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     if not update.message or not update.message.from_user:
-        return
+        return False
 
+    chat_id = update.effective_chat.id
+    user_id = update.message.from_user.id
+    state_key = (chat_id, user_id)
+
+    if state_key not in user_states:
+        return False
+
+    state = user_states.pop(state_key)
+    cfg = get_config(chat_id)
+    msg = update.message
+    text = msg.text or msg.caption or ""
+
+    if state == "awaiting_cpt_text":
+        cfg["captcha_custom_text"] = text
+        save_config(chat_id, cfg)
+        kb = [[create_btn("⬅️ Back to Captcha", callback_data=f"cfg_view_captcha_{chat_id}")]]
+        await msg.reply_text("✅ <b>Captcha custom message updated successfully!</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
+        return True
+
+    return False
+
+# ----------------- TOPIC BINDING COMMAND ----------------- #
+async def topic_captcha_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
     msg = update.message
-    text = msg.text or msg.caption or ""
-    cfg = get_config(chat.id)
 
-    if await is_user_admin(chat.id, user.id, context):
+    if chat.type == "private":
+        await msg.reply_text("Yeh command group ke andar run karein.")
         return
 
-    penalties = cfg.get("alpha_penalties", {})
-    deletes = cfg.get("alpha_deletes", {})
+    if not await is_user_admin(chat.id, user.id, context):
+        await msg.reply_text("❌ Sirf admins topic bind kar sakte hain.")
+        return
 
-    for lang_key, data in ALPHABET_DATA.items():
-        pen = penalties.get(lang_key, "Off")
-        del_on = deletes.get(lang_key, False)
+    # Check if chat actually has forum topics enabled
+    is_forum = getattr(chat, 'is_forum', False)
+    thread_id = msg.message_thread_id
 
-        if pen != "Off" or del_on:
-            if re.search(data["regex"], text):
-                await execute_punishment(pen, del_on, update, context, f"Forbidden Alphabet ({data['name']})")
-                return
+    if not is_forum and not thread_id:
+        text = "<i>There are no Topics in this group. You don't need to select a Topic.</i>"
+        await msg.reply_text(text, parse_mode="HTML")
+        return
 
-# ----------------- SYSTEM COMMANDS ----------------- #
+    cfg = get_config(chat.id)
+    cfg["captcha_topic_id"] = thread_id
+    save_config(chat.id, cfg)
+    await msg.reply_text(f"✅ Captcha bound to Topic Thread ID: <code>{thread_id}</code>.", parse_mode="HTML")
+
+# ----------------- CAPTCHA ENFORCEMENT ON JOIN ----------------- #
+async def captcha_new_member_enforcer(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat = update.effective_chat
+    cfg = get_config(chat.id)
+
+    if not cfg.get("captcha_active"):
+        return
+
+    for member in update.message.new_chat_members:
+        if member.id == context.bot.id or member.is_bot:
+            continue
+
+        # 1. Restrict user (Mute)
+        try:
+            await context.bot.restrict_chat_member(
+                chat_id=chat.id,
+                user_id=member.id,
+                permissions=ChatPermissions(can_send_messages=False)
+            )
+        except Exception as e:
+            logger.error(f"Failed to mute new user for captcha: {e}")
+
+        # 2. Build Captcha Prompt
+        mode = cfg.get("captcha_mode", "button")
+        time_label = cfg.get("captcha_time_label", "3 Minutes")
+        time_sec = cfg.get("captcha_time_val", 180)
+        thread_id = cfg.get("captcha_topic_id")
+
+        if mode == "button":
+            cpt_text = (
+                cfg.get("captcha_custom_text") or 
+                f"👋 Hello {member.mention_html()}!\n\n"
+                "Please press the button below within <b>{time_label}</b> to verify that you are not a robot and unlock sending messages."
+            )
+            cpt_text = cpt_text.replace("{time_label}", time_label)
+            btn_label = "✅ I am not a robot"
+        else:
+            rules_txt = cfg.get("rules_text", "1. Be respectful\n2. No spam.")
+            cpt_text = (
+                f"👋 Hello {member.mention_html()}!\n\n"
+                f"📜 <b>Group Regulations:</b>\n{rules_txt}\n\n"
+                f"Please accept the group regulation within <b>{time_label}</b> to unlock sending messages."
+            )
+            btn_label = "✅ Accept Regulations"
+
+        kb = [[create_btn(btn_label, callback_data=f"cptsolve_{member.id}_{chat.id}", style="success")]]
+
+        try:
+            sent = await chat.send_message(
+                cpt_text,
+                reply_markup=InlineKeyboardMarkup(kb),
+                message_thread_id=thread_id,
+                parse_mode="HTML"
+            )
+            pending_captchas[(chat.id, member.id)] = {
+                "message_id": sent.message_id,
+                "expire_time": time.time() + time_sec,
+                "penalty": cfg.get("captcha_penalty", "Mute"),
+                "del_service": cfg.get("captcha_delete_service", False)
+            }
+        except Exception as e:
+            logger.error(f"Error sending captcha message: {e}")
+
+# ----------------- CAPTCHA TIMEOUT MONITOR JOB ----------------- #
+async def captcha_timeout_checker(context: ContextTypes.DEFAULT_TYPE):
+    now = time.time()
+    expired = []
+
+    for (cid, uid), info in list(pending_captchas.items()):
+        if now >= info["expire_time"]:
+            expired.append(((cid, uid), info))
+
+    for (cid, uid), info in expired:
+        pending_captchas.pop((cid, uid), None)
+        penalty = info["penalty"]
+
+        # Delete Captcha Prompt if configured
+        if info["del_service"]:
+            try:
+                await context.bot.delete_message(chat_id=cid, message_id=info["message_id"])
+            except Exception:
+                pass
+
+        # Execute Penalty
+        try:
+            if penalty == "Ban":
+                await context.bot.ban_chat_member(chat_id=cid, user_id=uid)
+                await context.bot.send_message(chat_id=cid, text=f"🚫 User <a href='tg://user?id={uid}'>{uid}</a> banned for failing Captcha.", parse_mode="HTML")
+            elif penalty == "Kick":
+                await context.bot.unban_chat_member(chat_id=cid, user_id=uid)
+                await context.bot.send_message(chat_id=cid, text=f"👞 User <a href='tg://user?id={uid}'>{uid}</a> kicked for failing Captcha.", parse_mode="HTML")
+            elif penalty == "Mute":
+                # Already muted
+                await context.bot.send_message(chat_id=cid, text=f"🔇 User <a href='tg://user?id={uid}'>{uid}</a> remains muted for failing Captcha.", parse_mode="HTML")
+        except Exception as e:
+            logger.error(f"Timeout penalty error: {e}")
+
+# ----------------- SYSTEM & COMMANDS ----------------- #
 async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
@@ -830,20 +993,37 @@ async def update_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await status_msg.edit_text(f"❌ Error: `{str(e)}`", parse_mode="Markdown")
 
+# ----------------- SECURITY & AUTO MODERATION ----------------- #
+async def security_moderator(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message or not update.message.from_user:
+        return
+
+    if await interactive_state_processor(update, context):
+        return
+
 # ----------------- MAIN INITIALIZER ----------------- #
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).concurrent_updates(True).build()
 
+    # Recurring Job for Captcha Timeout Enforcement
+    if app.job_queue:
+        app.job_queue.run_repeating(captcha_timeout_checker, interval=5, first=5)
+
+    # Commands
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("settings", settings_command))
     app.add_handler(CommandHandler("update", update_command))
+    app.add_handler(CommandHandler("topic_captcha", topic_captcha_command))
 
+    # Single Fast Router
     app.add_handler(CallbackQueryHandler(unified_callback_handler))
 
+    # Handlers
+    app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, captcha_new_member_enforcer))
     app.add_handler(MessageHandler(filters.Regex(r"(?i)^pip3?\s+install\s+"), auto_pip_installer))
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, security_moderator))
 
-    print("🛡 Group Help Security Bot running with native success button colors...")
+    print("🛡 Group Help Security Bot running with complete Captcha System & SQLite persistence...")
     app.run_polling()
 
 if __name__ == "__main__":
