@@ -44,14 +44,24 @@ def parse_warn_duration(text: str) -> tuple:
 
     return total_seconds, " ".join(formatted_parts)
 
-# --- 1. MAIN WARNS MENU ---
+# --- 1. MAIN WARNS MENU & KEYBOARD (ACTIVE VS DEACTIVATED) ---
 def get_warns_main_keyboard(cid: int):
     cfg = get_config(cid)
+    is_active = cfg.get("warn_active", True)
     p = cfg.get("warn_penalty", "Ban")
-    max_w = cfg.get("warn_max_count", 3)
+    max_w = cfg.get("warn_max_count", 6)
 
+    # Deactivated State (Screenshot 2)
+    if not is_active or p == "Off":
+        keyboard = [
+            [create_btn("✅ Activate", callback_data=f"wrn_activate_{cid}")],
+            [create_btn("⬅️ Back", callback_data=f"cfg_page_1_{cid}")]
+        ]
+        return InlineKeyboardMarkup(keyboard)
+
+    # Active State (Screenshot 1)
     r1 = [
-        create_btn("✖️ Off", callback_data=f"wrnpen_Off_{cid}", style="success" if p == "Off" else None),
+        create_btn("✖️ Off", callback_data=f"wrnpen_Off_{cid}"),
         create_btn("❗️ Kick", callback_data=f"wrnpen_Kick_{cid}", style="success" if p == "Kick" else None)
     ]
     r2 = [
@@ -64,7 +74,7 @@ def get_warns_main_keyboard(cid: int):
         r1, r2
     ]
 
-    # Duration button if Mute or Ban is selected
+    # Duration button for Mute or Ban
     if p == "Mute":
         keyboard.append([create_btn("🔇⏰ Set mute duration", callback_data=f"wrnset_dur_Mute_{cid}")])
     elif p == "Ban":
@@ -82,16 +92,20 @@ def get_warns_main_keyboard(cid: int):
 
 def get_warns_main_text(cid: int):
     cfg = get_config(cid)
+    is_active = cfg.get("warn_active", True)
     p = cfg.get("warn_penalty", "Ban")
-    max_w = cfg.get("warn_max_count", 3)
+    max_w = cfg.get("warn_max_count", 6)
+
+    disp_penalty = "Off" if not is_active or p == "Off" else p
+
     return (
         "❗️ <b>User warnings</b>\n"
-        "The warning system allows you to give warnings to users for incorrect behavior in the group, "
-        "before actually punishing them.\n\n"
+        "The warning system allows you to give <u>warnings to users</u> for "
+        "incorrect behavior in the group, before actually punishing them.\n\n"
         "From this menu you can set:\n"
         "• the <u>punishment</u> for users who exceed the maximum of warnings allowed\n"
         "• the <u>maximum number</u> of warns allowed\n\n"
-        f"<b>Punishment:</b> {p}\n"
+        f"<b>Punishment:</b> {disp_penalty}\n"
         f"<b>Max Warns allowed:</b> {max_w}"
     )
 
@@ -105,7 +119,7 @@ def get_warned_list_keyboard(cid: int):
 
 def get_warned_list_text(cid: int):
     cfg = get_config(cid)
-    max_w = cfg.get("warn_max_count", 3)
+    max_w = cfg.get("warn_max_count", 6)
     return f"<b>WARNED USERS (MAX {max_w})</b>"
 
 def get_free_confirm_keyboard(cid: int):
@@ -124,10 +138,23 @@ async def handle_warns_callbacks(query, data: str, cid: int, user, user_states):
         user_states.pop((cid, user.id), None)
         await fast_edit(query, get_warns_main_text(cid), get_warns_main_keyboard(cid))
 
-    # Penalty Type Selector
+    # Activate Button Clicked (from Off State)
+    elif data.startswith("wrn_activate_"):
+        cfg["warn_active"] = True
+        if cfg.get("warn_penalty") == "Off":
+            cfg["warn_penalty"] = "Ban"
+        save_config(cid, cfg)
+        await fast_edit(query, get_warns_main_text(cid), get_warns_main_keyboard(cid))
+
+    # Penalty Selector (including Off)
     elif data.startswith("wrnpen_"):
         pen = data.split("_")[1]
-        cfg["warn_penalty"] = pen
+        if pen == "Off":
+            cfg["warn_active"] = False
+            cfg["warn_penalty"] = "Off"
+        else:
+            cfg["warn_active"] = True
+            cfg["warn_penalty"] = pen
         save_config(cid, cfg)
         await fast_edit(query, get_warns_main_text(cid), get_warns_main_keyboard(cid))
 
@@ -236,7 +263,10 @@ async def handle_warns_text_state(update: Update, context, user_states):
 # --- 5. WARN PUNISHMENT EXECUTOR ---
 async def execute_warn_action(context, chat_id: int, user, reason: str = ""):
     cfg = get_config(chat_id)
-    max_warns = cfg.get("warn_max_count", 3)
+    if not cfg.get("warn_active", True) or cfg.get("warn_penalty") == "Off":
+        return
+
+    max_warns = cfg.get("warn_max_count", 6)
     penalty = cfg.get("warn_penalty", "Ban")
 
     current_warns = get_user_warns(chat_id, user.id) + 1
@@ -251,7 +281,7 @@ async def execute_warn_action(context, chat_id: int, user, reason: str = ""):
         )
         return
 
-    # User exceeded max warns
+    # User reached or exceeded max warns limit
     set_user_warns(chat_id, user.id, 0)
     dur_sec = cfg.get(f"warn_{penalty.lower()}_dur_sec", 0)
     until_time = int(time.time() + dur_sec) if dur_sec > 0 else 0
