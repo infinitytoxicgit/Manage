@@ -1,3 +1,6 @@
+import urllib.parse
+import urllib.request
+import json
 from database import get_config, save_config
 from utils import (
     create_btn,
@@ -7,6 +10,45 @@ from utils import (
     parse_custom_buttons,
     is_user_admin
 )
+
+TRANSLATE_CACHE = {}
+
+POPULAR_LANGUAGES = [
+    ("🇮🇳 Hindi", "hi"),
+    ("🇬🇧 English", "en"),
+    ("🇪🇸 Spanish", "es"),
+    ("🇸🇦 Arabic", "ar"),
+    ("🇷🇺 Russian", "ru"),
+    ("🇫🇷 French", "fr"),
+    ("🇩🇪 German", "de"),
+    ("🇯🇵 Japanese", "ja"),
+    ("🇨🇳 Chinese", "zh-CN"),
+    ("🇮🇹 Italian", "it"),
+    ("🇵🇹 Portuguese", "pt"),
+    ("🇹🇷 Turkish", "tr")
+]
+
+def perform_google_translate(text: str, target_lang: str) -> str:
+    """Free, lightweight, zero-library Google translation engine."""
+    try:
+        url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl={target_lang}&dt=t&q={urllib.parse.quote(text)}"
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=5) as response:
+            res = json.loads(response.read().decode("utf-8"))
+            translated_pieces = [item[0] for item in res[0] if item and item[0]]
+            return "".join(translated_pieces)
+    except Exception as e:
+        return f"❌ Translation Error: {str(e)}"
+
+def get_translate_keyboard(target_uid: int, chat_id: int):
+    keyboard = []
+    for i in range(0, len(POPULAR_LANGUAGES), 2):
+        row = []
+        for name, code in POPULAR_LANGUAGES[i:i+2]:
+            row.append(create_btn(name, callback_data=f"trset_{code}_{target_uid}_{chat_id}"))
+        keyboard.append(row)
+    keyboard.append([create_btn("❌ Cancel", callback_data=f"trcancel_{target_uid}")])
+    return InlineKeyboardMarkup(keyboard)
 
 def get_regulations_text(chat_id: int):
     return (
@@ -84,7 +126,44 @@ def get_cmd_permissions_keyboard(chat_id: int):
     return InlineKeyboardMarkup(keyboard)
 
 async def handle_regulations_callbacks(query, data: str, cid: int, user, chat, user_states, context):
-    # Admin Permission Enforcement
+    # 1. TRANSLATION CALLBACK EXECUTION
+    if data.startswith("trcancel_"):
+        target_uid = int(data.split("_")[1])
+        if user.id != target_uid:
+            await query.answer("Yeh button aapke liye nahi hai!", show_alert=True)
+            return
+        TRANSLATE_CACHE.pop((chat.id, target_uid), None)
+        await query.message.delete()
+        return
+
+    if data.startswith("trset_"):
+        parts = data.split("_")
+        lang_code = parts[1]
+        target_uid = int(parts[2])
+
+        if user.id != target_uid:
+            await query.answer("Sirf command send karne wala user language select kar sakta hai!", show_alert=True)
+            return
+
+        cache_key = (chat.id, target_uid)
+        orig_text = TRANSLATE_CACHE.pop(cache_key, None)
+        if not orig_text:
+            await query.answer("Translation session expired. Please send /translate again.", show_alert=True)
+            await query.message.delete()
+            return
+
+        translated_result = perform_google_translate(orig_text, lang_code)
+        lang_name = dict(map(reversed, [(k, v) for v, k in POPULAR_LANGUAGES])).get(lang_code, lang_code.upper())
+
+        out_msg = (
+            f"🌐 <b>Translation ({lang_name}):</b>\n\n"
+            f"<blockquote>{translated_result}</blockquote>\n\n"
+            f"<i>Original by {user.mention_html()}</i>"
+        )
+        await fast_edit(query, out_msg, None)
+        return
+
+    # 2. ADMIN ONLY CHECK FOR REGULATIONS SETTINGS
     if not await is_user_admin(cid, user.id, context):
         try:
             await query.answer("❌ Aapke paas regulations change karne ki permission nahi hai!", show_alert=True)
