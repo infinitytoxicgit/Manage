@@ -50,6 +50,31 @@ async def fast_edit(query, text: str, keyboard: InlineKeyboardMarkup):
             except Exception:
                 pass
 
+def parse_time_duration(text: str) -> int:
+    text = text.lower().strip()
+    patterns = {
+        "year": 31536000, "y": 31536000,
+        "month": 2592000, "mo": 2592000,
+        "week": 604800, "w": 604800,
+        "day": 86400, "d": 86400,
+        "hour": 3600, "h": 3600,
+        "minute": 60, "min": 60, "m": 60,
+        "second": 1, "sec": 1, "s": 1
+    }
+    total_sec = 0
+    matches = re.findall(r"(\d+)\s*([a-zA-Z]+)", text)
+    if matches:
+        for val, unit in matches:
+            val = int(val)
+            for k, sec in patterns.items():
+                if unit.startswith(k):
+                    total_sec += val * sec
+                    break
+    elif text.isdigit():
+        total_sec = int(text)
+
+    return total_sec
+
 def format_template(text: str, user, chat, cfg: dict):
     if not text:
         return ""
