@@ -4,7 +4,7 @@ from telegram import Update, InlineKeyboardMarkup, ChatPermissions
 from database import get_config, save_config, get_user_warns, set_user_warns
 from utils import create_btn, make_penalty_buttons, fast_edit
 
-# Custom Duration Parser for Anti-Spam
+# Custom Duration Parser
 def parse_duration_smart(text: str) -> int:
     raw = text.strip().lower()
     matches = re.findall(r'(\d+)\s*([a-zA-Z]+)', raw)
@@ -211,7 +211,14 @@ def get_global_whitelist_text(cid: int):
 async def handle_antispam_callbacks(query, data: str, cid: int, user, user_states):
     cfg = get_config(cid)
 
-    if data.startswith("as_main_") or data.startswith("cfg_view_antispam_") or data.startswith("aspam_main_"):
+    # Universal matching for Anti-Spam Menu Entry
+    if (
+        data.startswith("as_main_") 
+        or data.startswith("cfg_view_antispam_") 
+        or data.startswith("cfg_view_spam_") 
+        or data.startswith("cfg_view_aspam_") 
+        or data.startswith("aspam_main_")
+    ):
         user_states.pop((cid, user.id), None)
         await fast_edit(query, get_antispam_main_text(), get_antispam_main_keyboard(cid))
     
@@ -338,7 +345,7 @@ async def handle_antispam_callbacks(query, data: str, cid: int, user, user_state
         save_config(cid, cfg)
         await fast_edit(query, get_global_whitelist_text(cid), get_global_whitelist_keyboard(cid))
 
-# --- 7. TEXT STATE PROCESSOR FOR ANTISPAM ---
+# --- 7. TEXT STATE PROCESSOR ---
 async def handle_antispam_text_state(update, context, user_states):
     msg = update.message
     if not msg or not msg.from_user:
@@ -358,7 +365,7 @@ async def handle_antispam_text_state(update, context, user_states):
     text = msg.text or ""
     cfg = get_config(chat_id)
 
-    # 1. Handling Telegram links Duration
+    # 1. Telegram links Duration
     if state.startswith("awaiting_as_tg_dur_"):
         parsed_sec = parse_duration_smart(text)
         if parsed_sec < 30:
@@ -387,7 +394,7 @@ async def handle_antispam_text_state(update, context, user_states):
         )
         return True
 
-    # 2. Handling Total links Duration
+    # 2. Total links Duration
     elif state.startswith("awaiting_as_tot_dur_"):
         parsed_sec = parse_duration_smart(text)
         if parsed_sec < 30:
@@ -416,7 +423,7 @@ async def handle_antispam_text_state(update, context, user_states):
         )
         return True
 
-    # 3. Handling Whitelist Add
+    # 3. Whitelist Add
     elif state == "awaiting_as_wl_add":
         user_states.pop(state_key, None)
         wl = cfg.get("as_whitelist", [])
@@ -428,7 +435,7 @@ async def handle_antispam_text_state(update, context, user_states):
         await msg.reply_text(f"✅ <code>{clean_item}</code> added to Whitelist!", reply_markup=get_exceptions_keyboard(chat_id), parse_mode="HTML")
         return True
 
-    # 4. Handling Whitelist Remove
+    # 4. Whitelist Remove
     elif state == "awaiting_as_wl_rem":
         user_states.pop(state_key, None)
         wl = cfg.get("as_whitelist", [])
@@ -444,7 +451,7 @@ async def handle_antispam_text_state(update, context, user_states):
 
     return False
 
-# --- 8. ACTUAL PUNISHMENT EXECUTOR (MUTE / BAN / KICK / WARN with Exact Duration) ---
+# --- 8. ACTUAL PENALTY EXECUTOR ---
 async def execute_antispam_penalty(context, chat_id: int, user, penalty: str, duration_sec: int, reason: str):
     if penalty == "Off" or not penalty:
         return
@@ -484,9 +491,9 @@ async def execute_antispam_penalty(context, chat_id: int, user, penalty: str, du
                 await context.bot.send_message(chat_id, f"🚫 {user.mention_html()} banned (Exceeded max warnings).", parse_mode="HTML")
 
     except Exception as e:
-        print(f"Error executing penalty: {e}")
+        print(f"Error executing antispam penalty: {e}")
 
-# --- 9. MESSAGE SCANNER FOR SPAM DETECTION ---
+# --- 9. MESSAGE SCANNER ---
 async def inspect_antispam_message(update: Update, context) -> bool:
     msg = update.effective_message
     chat = update.effective_chat
@@ -503,13 +510,13 @@ async def inspect_antispam_message(update: Update, context) -> bool:
     text = (msg.text or msg.caption or "")
     entities = msg.entities or msg.caption_entities or []
 
-    # Whitelist check
+    # Whitelist Check
     whitelist = cfg.get("as_whitelist", [])
     for item in whitelist:
         if item.lower() in text.lower():
             return False
 
-    # 1. Check Total Links Block
+    # 1. Total Links Check
     tot_penalty = cfg.get("as_tot_penalty", "Off")
     if tot_penalty != "Off":
         has_url = any(e.type in ["url", "text_link"] for e in entities) or re.search(r'https?://[^\s]+', text)
@@ -523,7 +530,7 @@ async def inspect_antispam_message(update: Update, context) -> bool:
             await execute_antispam_penalty(context, chat.id, user, tot_penalty, dur, "Sending external link")
             return True
 
-    # 2. Check Telegram Links
+    # 2. Telegram Links Check
     tg_penalty = cfg.get("as_tg_penalty", "Off")
     if tg_penalty != "Off":
         has_tg = "t.me/" in text or "telegram.me/" in text or (cfg.get("as_tg_username", False) and "@" in text)
@@ -537,7 +544,7 @@ async def inspect_antispam_message(update: Update, context) -> bool:
             await execute_antispam_penalty(context, chat.id, user, tg_penalty, dur, "Sending Telegram link/username")
             return True
 
-    # 3. Check Forwarding
+    # 3. Forwarding Check
     if msg.forward_from_chat or msg.forward_from:
         fwd_cat = "chan" if (msg.forward_from_chat and msg.forward_from_chat.type == "channel") else "grp"
         fwd_pen = cfg.get(f"as_fwd_{fwd_cat}_pen", "Off")
