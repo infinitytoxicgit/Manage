@@ -50,12 +50,12 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
             pass
         return
 
-    # Handle Translation / Regulations sub-menus
+    # Handle Translation Click Actions
     if data.startswith("trset_") or data.startswith("trcancel_"):
         await handle_regulations_callbacks(query, data, chat.id, user, chat, user_states, context)
         return
 
-    # /settings opening selector
+    # /settings open handler
     if data.startswith("set_open_"):
         mode = data.split("_")[2]
         cid = int(data.split("_")[3])
@@ -105,7 +105,7 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
             pass
         return
 
-    # Extract Chat ID
+    # Extract Chat ID safely
     match = re.search(r"(-?\d+)$", data)
     cid = int(match.group(1)) if match else chat.id
 
@@ -169,7 +169,7 @@ async def interactive_state_processor(update: Update, context: ContextTypes.DEFA
         cfg["rules_text"] = text
         save_config(chat_id, cfg)
         kb = [[create_btn("⬅️ Back", callback_data=f"reg_custom_msg_{chat_id}")]]
-        await msg.reply_text("✅ <b>Regulations message set.</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
+        await msg.reply_text("✅ <b>Regulations message set & permanently saved!</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
         return True
 
     elif state == "awaiting_reg_media":
@@ -189,7 +189,7 @@ async def interactive_state_processor(update: Update, context: ContextTypes.DEFA
             cfg["rules_text"] = msg.caption
         save_config(chat_id, cfg)
         kb = [[create_btn("⬅️ Back", callback_data=f"reg_custom_msg_{chat_id}")]]
-        await msg.reply_text("✅ <b>Regulations media set.</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
+        await msg.reply_text("✅ <b>Regulations media set & permanently saved!</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
         return True
 
     elif state == "awaiting_reg_buttons":
@@ -205,14 +205,14 @@ async def interactive_state_processor(update: Update, context: ContextTypes.DEFA
         cfg["welcome_text"] = text
         save_config(chat_id, cfg)
         kb = [[create_btn("⬅️ Back", callback_data=f"wlc_custom_{chat_id}")]]
-        await msg.reply_text("✅ <b>Welcome message set.</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
+        await msg.reply_text("✅ <b>Welcome message permanently saved!</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
         return True
 
     elif state == "awaiting_gby_text":
         cfg["goodbye_text"] = text
         save_config(chat_id, cfg)
         kb = [[create_btn("⬅️ Back", callback_data=f"gby_custom_{chat_id}")]]
-        await msg.reply_text("✅ <b>Goodbye message set.</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
+        await msg.reply_text("✅ <b>Goodbye message permanently saved!</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
         return True
 
     return False
@@ -272,23 +272,37 @@ async def rules_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await send_custom_bundle(chat, user, cfg, mode="rules")
 
+# TRANSLATE COMMAND (Works with /translate, tag, reply or inline args)
 async def translate_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
     msg = update.message
+    if not msg:
+        return
+
     cfg = get_config(chat.id)
     perm = cfg.get("perm_translate", "everyone")
 
+    # Permissions Hierarchy
     if perm == "nobody":
         return
     if perm == "staff" and not await is_user_admin(chat.id, user.id, context):
         return
 
     target_text = ""
+    # 1. Check if user replied to a message
     if msg.reply_to_message:
         target_text = msg.reply_to_message.text or msg.reply_to_message.caption or ""
-    elif context.args:
+    
+    # 2. Check if user passed text with command (e.g., /translate hello)
+    if not target_text and context.args:
         target_text = " ".join(context.args)
+
+    # 3. Fallback: Parse message raw text directly
+    if not target_text and msg.text:
+        parts = re.split(r"^/translate(?:@\w+)?\s*", msg.text.strip(), flags=re.IGNORECASE)
+        if len(parts) > 1 and parts[1].strip():
+            target_text = parts[1].strip()
 
     if not target_text:
         await msg.reply_text(
@@ -362,7 +376,6 @@ async def me_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(info, parse_mode="HTML")
 
-# FULL PROVEN /UPDATE MECHANISM
 async def update_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in OWNER_IDS:
         return
@@ -371,31 +384,25 @@ async def update_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     repo_dir = Path(__file__).resolve().parent
 
     try:
-        # 1. Stash any temporary changes (ignores database file issues)
         subprocess.run(["git", "stash"], cwd=repo_dir, capture_output=True, text=True)
-
-        # 2. Get active branch
         branch_proc = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=repo_dir, capture_output=True, text=True, check=True)
         active_branch = branch_proc.stdout.strip() or "main"
 
-        # 3. Get old hash
         old_hash_proc = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo_dir, capture_output=True, text=True, check=True)
         old_hash = old_hash_proc.stdout.strip()
 
-        # 4. Fetch all remote branches
         subprocess.run(["git", "fetch", "--all"], cwd=repo_dir, capture_output=True, text=True, check=True)
-
-        # 5. Force reset to match remote exactly
         subprocess.run(["git", "reset", "--hard", f"origin/{active_branch}"], cwd=repo_dir, capture_output=True, text=True, check=True)
+        
+        pull_proc = subprocess.run(["git", "pull", "origin", active_branch], cwd=repo_dir, capture_output=True, text=True, check=True)
+        pull_output = pull_proc.stdout.strip()
 
-        # 6. Check new hash & commit details
         new_hash_proc = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo_dir, capture_output=True, text=True, check=True)
         new_hash = new_hash_proc.stdout.strip()
 
         log_proc = subprocess.run(["git", "log", "-1", "--pretty=format:%s (%h)"], cwd=repo_dir, capture_output=True, text=True, check=True)
         latest_commit_msg = log_proc.stdout.strip()
 
-        # 7. Clean Python Bytecode cache
         for pyc_dir in repo_dir.rglob("__pycache__"):
             shutil.rmtree(pyc_dir, ignore_errors=True)
 
@@ -413,7 +420,6 @@ async def update_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode="Markdown"
             )
 
-        # 8. Clean OS Process Replacement
         os.execv(sys.executable, [sys.executable, str(repo_dir / "main.py")])
 
     except Exception as e:
