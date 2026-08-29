@@ -29,6 +29,7 @@ from modules.antiflood import handle_antiflood_callbacks, handle_antiflood_text_
 from modules.antispam import handle_antispam_callbacks, handle_antispam_text_state, inspect_antispam_message
 from modules.admin_report import handle_report_command, handle_report_resolve_callback
 from modules.blocks import handle_blocks_callbacks, handle_blocks_text_state
+from modules.media_block import handle_media_callbacks, handle_media_text_state, inspect_media_message
 from modules.alphabets import handle_alphabets_callbacks
 from modules.captcha import handle_captcha_callbacks
 from modules.checks import handle_checks_callbacks
@@ -150,7 +151,7 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
             await fast_edit(query, header_text, get_page1_settings_keyboard(cid))
         return
 
-    # 2. Module Handlers
+    # 2. Module Handlers Routing
     if data.startswith("cfg_view_reg_") or data.startswith("reg_") or data.startswith("permset_"):
         await handle_regulations_callbacks(query, data, cid, user, chat, user_states, context)
     elif data.startswith("wlc_") or data.startswith("cfg_view_welcome_"):
@@ -195,6 +196,14 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
         or data.startswith("blkset_dur_")
     ):
         await handle_blocks_callbacks(query, data, cid, user, user_states)
+    elif (
+        data.startswith("cfg_mod_media_")
+        or data.startswith("cfg_view_media_")
+        or data.startswith("med_")
+        or data.startswith("medpage_")
+        or data.startswith("medset_")
+    ):
+        await handle_media_callbacks(query, data, cid, user, user_states)
     elif data.startswith("alp") or data.startswith("cfg_view_alphabets_"):
         await handle_alphabets_callbacks(query, data, cid)
     elif data.startswith("cpt_") or data.startswith("cfg_view_captcha_"):
@@ -235,6 +244,10 @@ async def interactive_state_processor(update: Update, context: ContextTypes.DEFA
         # Route to Blocks Module Duration State
         if state and state.startswith("awaiting_blk_dur_"):
             return await handle_blocks_text_state(update, context, user_states)
+
+        # Route to Media Block Duration State
+        if state and state.startswith("awaiting_med_dur_"):
+            return await handle_media_text_state(update, context, user_states)
 
         cfg = get_config(chat_id)
         msg = update.message
@@ -279,8 +292,11 @@ async def interactive_state_processor(update: Update, context: ContextTypes.DEFA
             await msg.reply_text(f"<code>{html.escape(text)}</code>", reply_markup=InlineKeyboardMarkup(final_kb), parse_mode="HTML")
             return True
 
-    # 3. Inspect Group Messages for Anti-Spam
-    await inspect_antispam_message(update, context)
+    # 3. Live Group Message Inspectors
+    if await inspect_antispam_message(update, context):
+        return True
+        
+    await inspect_media_message(update, context)
     return False
 
 # Commands
