@@ -5,6 +5,7 @@ import logging
 import re
 import shutil
 import html
+import asyncio
 from pathlib import Path
 from telegram import Update, InlineKeyboardMarkup
 from telegram.error import Forbidden
@@ -311,28 +312,32 @@ async def me_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(info, parse_mode="HTML")
 
-# FULL ROBUST FORCE UPDATE COMMAND (Fixed Git Pull & Process Restart)
+# FULL ROBUST FORCE UPDATE COMMAND (Fixed Auto-Pull & Async Safe Process Restart)
 async def update_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in OWNER_IDS:
         return
 
-    status_msg = await update.message.reply_text("🔄 **Force syncing all files from GitHub...**", parse_mode="Markdown")
+    status_msg = await update.message.reply_text("🔄 **Syncing latest files from GitHub...**", parse_mode="Markdown")
     repo_dir = Path(__file__).resolve().parent
 
     try:
-        subprocess.run(["git", "reset", "--hard"], cwd=repo_dir, capture_output=True, text=True)
-        subprocess.run(["git", "stash"], cwd=repo_dir, capture_output=True, text=True)
+        # 1. Stash all local modifications
+        subprocess.run(["git", "stash", "--include-untracked"], cwd=repo_dir, capture_output=True, text=True)
 
+        # 2. Get active branch
         branch_proc = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=repo_dir, capture_output=True, text=True, check=True)
         active_branch = branch_proc.stdout.strip() or "main"
 
-        subprocess.run(["git", "fetch", "origin", active_branch], cwd=repo_dir, capture_output=True, text=True, check=True)
+        # 3. Force fetch & hard reset to origin
+        subprocess.run(["git", "fetch", "--all"], cwd=repo_dir, capture_output=True, text=True, check=True)
         subprocess.run(["git", "reset", "--hard", f"origin/{active_branch}"], cwd=repo_dir, capture_output=True, text=True, check=True)
         subprocess.run(["git", "clean", "-fd"], cwd=repo_dir, capture_output=True, text=True, check=True)
 
+        # 4. Read latest commit info
         log_proc = subprocess.run(["git", "log", "-1", "--pretty=format:%s (%h)"], cwd=repo_dir, capture_output=True, text=True, check=True)
         latest_commit_msg = log_proc.stdout.strip()
 
+        # 5. Clear all bytecode caches
         for pyc_dir in repo_dir.rglob("__pycache__"):
             shutil.rmtree(pyc_dir, ignore_errors=True)
 
@@ -340,11 +345,16 @@ async def update_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"🚀 **Successfully Synced & Updated!**\n\n"
             f"📝 **Latest Commit:** `{latest_commit_msg}`\n"
             f"🔹 **Branch:** `{active_branch}`\n\n"
-            f"⚙️ Restarting bot cleanly...",
+            f"⚙️ **Restarting bot instance now...**",
             parse_mode="Markdown"
         )
 
-        os.execl(sys.executable, sys.executable, *sys.argv)
+        # 6. Spawn new process cleanly and stop the current application loop
+        async def restart_bot():
+            await asyncio.sleep(1)
+            os.execv(sys.executable, [sys.executable] + sys.argv)
+
+        asyncio.create_task(restart_bot())
 
     except Exception as e:
         await status_msg.edit_text(f"❌ **Update Failed:**\n```\n{str(e)}\n```", parse_mode="Markdown")
