@@ -122,6 +122,7 @@ async def handle_night_callbacks(query, data: str, cid: int, user, user_states, 
         else:
             await fast_edit(query, get_timezone_text(cid), get_timezone_keyboard(cid, in_pm=True))
 
+    # Trigger Location Request in DM directly when ✍️ Set is clicked from Time Zone menu
     elif data.startswith("ngt_tz_reqpos_") or data.startswith("ngttz_reqpos_"):
         for k in list(user_states.keys()):
             if k[1] == user.id:
@@ -193,6 +194,7 @@ async def handle_night_text_state(update: Update, context, user_states):
     if msg.location:
         lat = msg.location.latitude
         lon = msg.location.longitude
+        
         if 68 <= lon <= 97 and 8 <= lat <= 37:
             tz_name = "Asia/Kolkata"
             tz_offset = 5.5
@@ -217,6 +219,9 @@ async def handle_night_text_state(update: Update, context, user_states):
         elif any(x in city for x in ["Rome", "Italy", "Europe", "Paris", "Berlin"]):
             tz_name = "Europe/Rome"
             tz_offset = 2
+        elif "Utc" in city or "Gmt" in city:
+            tz_name = "UTC"
+            tz_offset = 0
         else:
             tz_name = city
             tz_offset = 0
