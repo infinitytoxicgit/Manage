@@ -50,10 +50,22 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
             pass
         return
 
+    # Extract Chat ID
+    match = re.search(r"(-?\d+)$", data)
+    cid = int(match.group(1)) if match else chat.id
+
+    if not await is_user_admin(cid, user.id, context):
+        try:
+            await query.answer("❌ Sirf Group Owner aur Admins settings badal sakte hain!", show_alert=True)
+        except Exception:
+            pass
+        return
+
+    bot_info = await context.bot.get_me()
+
     # /settings opening selector
     if data.startswith("set_open_"):
         mode = data.split("_")[2]
-        cid = int(data.split("_")[3])
         chat_title = chat.title if chat.type != "private" else "Group"
         header_text = f"<b>SETTINGS</b>\nGroup: {chat_title}\n\n<i>Select one of the settings that you want to change.</i>"
 
@@ -69,7 +81,6 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
                 )
                 await fast_edit(query, "<i>Settings opened in Private Chat.</i>", None)
             except Forbidden:
-                bot_info = await context.bot.get_me()
                 start_btn = [[create_btn("🤖 Start Bot in PM", url=f"https://t.me/{bot_info.username}?start=settings_{cid}")]]
                 await fast_edit(query, "⚠️ Pehle bot ko PM me /start karein.", InlineKeyboardMarkup(start_btn))
         return
@@ -92,26 +103,12 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
         return
 
     if data.startswith("show_rules_popup_"):
-        cid = int(data.split("_")[3])
         cfg = get_config(cid)
         try:
             await query.answer(cfg.get("rules_text", "No rules set.")[:200], show_alert=True)
         except Exception:
             pass
         return
-
-    # Extract Chat ID
-    match = re.search(r"(-?\d+)$", data)
-    cid = int(match.group(1)) if match else chat.id
-
-    if not await is_user_admin(cid, user.id, context):
-        try:
-            await query.answer("Sirf Admins settings badal sakte hain!", show_alert=True)
-        except Exception:
-            pass
-        return
-
-    bot_info = await context.bot.get_me()
 
     # 1. Page Navigation
     if data.startswith("cfg_page_"):
@@ -126,7 +123,7 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
 
     # 2. Module Handlers
     if data.startswith("cfg_view_reg_") or data.startswith("reg_") or data.startswith("permset_"):
-        await handle_regulations_callbacks(query, data, cid, user, chat, user_states)
+        await handle_regulations_callbacks(query, data, cid, user, chat, user_states, context)
     elif data.startswith("wlc_") or data.startswith("cfg_view_welcome_"):
         await handle_welcome_callbacks(query, data, cid, user, chat, user_states)
     elif data.startswith("gby_") or data.startswith("cfg_view_goodbye_"):
@@ -151,6 +148,11 @@ async def interactive_state_processor(update: Update, context: ContextTypes.DEFA
     if state_key not in user_states:
         return False
 
+    if not await is_user_admin(chat_id, user_id, context):
+        user_states.pop(state_key, None)
+        await update.message.reply_text("❌ Aapke paas settings edit karne ka right nahi hai.")
+        return True
+
     state = user_states.pop(state_key)
     cfg = get_config(chat_id)
     msg = update.message
@@ -159,8 +161,8 @@ async def interactive_state_processor(update: Update, context: ContextTypes.DEFA
     if state == "awaiting_reg_text":
         cfg["rules_text"] = text
         save_config(chat_id, cfg)
-        kb = [[create_btn("⬅️ Back", callback_data=f"cfg_view_reg_{chat_id}")]]
-        await msg.reply_text("✅ <b>Regulations message set.</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
+        kb = [[create_btn("⬅️ Back", callback_data=f"reg_custom_msg_{chat_id}")]]
+        await msg.reply_text("✅ <b>Regulations message permanently saved!</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
         return True
 
     elif state == "awaiting_reg_media":
@@ -180,7 +182,7 @@ async def interactive_state_processor(update: Update, context: ContextTypes.DEFA
             cfg["rules_text"] = msg.caption
         save_config(chat_id, cfg)
         kb = [[create_btn("⬅️ Back", callback_data=f"reg_custom_msg_{chat_id}")]]
-        await msg.reply_text("✅ <b>Regulations media set.</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
+        await msg.reply_text("✅ <b>Regulations media permanently saved!</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
         return True
 
     elif state == "awaiting_reg_buttons":
@@ -302,38 +304,73 @@ async def rules_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await send_custom_bundle(chat, user, cfg, mode="rules")
 
+async def staff_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat = update.effective_chat
+    user = update.effective_user
+    cfg = get_config(chat.id)
+    perm = cfg.get("perm_staff", "everyone")
+
+    if perm == "nobody":
+        return
+    if perm == "staff" and not await is_user_admin(chat.id, user.id, context):
+        return
+
+    try:
+        admins = await context.bot.get_chat_administrators(chat.id)
+        staff_text = "👮🏻 <b>Group Staff:</b>\n\n"
+        for adm in admins:
+            status = "👑 Creator" if adm.status == "creator" else "🛡 Admin"
+            staff_text += f"• {adm.user.mention_html()} — <i>{status}</i>\n"
+        await update.message.reply_text(staff_text, parse_mode="HTML")
+    except Exception as e:
+        await update.message.reply_text(f"Error getting staff list: {e}")
+
+async def me_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    chat = update.effective_chat
+    cfg = get_config(chat.id)
+    perm = cfg.get("perm_me", "private")
+
+    if perm == "nobody":
+        return
+    if perm == "staff" and not await is_user_admin(chat.id, user.id, context):
+        return
+
+    warns = get_user_warns(chat.id, user.id)
+    info = f"👤 <b>Your Info:</b>\n• Name: {user.mention_html()}\n• ID: <code>{user.id}</code>\n• Warns: <b>{warns}</b>"
+
+    if perm == "private" and chat.type != "private":
+        try:
+            await context.bot.send_message(chat_id=user.id, text=info, parse_mode="HTML")
+        except Exception:
+            pass
+        return
+
+    await update.message.reply_text(info, parse_mode="HTML")
+
 async def update_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in OWNER_IDS:
         return
     
-    status_msg = await update.message.reply_text("🔄 **Stashing, pulling and updating files...**", parse_mode="Markdown")
+    status_msg = await update.message.reply_text("🔄 **Syncing with GitHub and restarting...**", parse_mode="Markdown")
     repo_dir = Path(__file__).resolve().parent
 
     try:
-        # 1. Stash any local uncommitted files
         subprocess.run(["git", "stash"], cwd=repo_dir, capture_output=True, text=True, check=True)
-
-        # 2. Get current active branch
         branch_proc = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=repo_dir, capture_output=True, text=True, check=True)
         current_branch = branch_proc.stdout.strip() or "main"
 
-        # 3. Fetch and hard reset to ensure 100% exact copy of remote
         subprocess.run(["git", "fetch", "--all"], cwd=repo_dir, capture_output=True, text=True, check=True)
         subprocess.run(["git", "reset", "--hard", f"origin/{current_branch}"], cwd=repo_dir, capture_output=True, text=True, check=True)
         
-        # 4. Git pull latest
         pull_proc = subprocess.run(["git", "pull", "origin", current_branch], cwd=repo_dir, capture_output=True, text=True, check=True)
         pull_output = pull_proc.stdout.strip()
 
-        # 5. Clean bytecode cache (.pyc)
         for pyc_dir in repo_dir.rglob("__pycache__"):
             shutil.rmtree(pyc_dir, ignore_errors=True)
 
-        await status_msg.edit_text(f"⚙️ **Git Pull Successful!**\n`{pull_output}`\n\n🔄 Restarting process...", parse_mode="Markdown")
-        
-        # 6. Smooth clean restart
+        await status_msg.edit_text(f"⚙️ **Update Complete!**\n`{pull_output}`\n\n🔄 Bot restarted.", parse_mode="Markdown")
         os.execv(sys.executable, [sys.executable, str(repo_dir / "main.py")])
-        
     except Exception as e:
         await status_msg.edit_text(f"❌ **Update Failed:**\n`{str(e)}`", parse_mode="Markdown")
 
@@ -342,6 +379,8 @@ def main():
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("settings", settings_command))
     app.add_handler(CommandHandler("rules", rules_command))
+    app.add_handler(CommandHandler("staff", staff_command))
+    app.add_handler(CommandHandler("me", me_command))
     app.add_handler(CommandHandler("update", update_command))
     app.add_handler(CallbackQueryHandler(unified_callback_handler))
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, interactive_state_processor))
