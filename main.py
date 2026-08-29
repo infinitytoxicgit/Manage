@@ -311,7 +311,7 @@ async def me_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(info, parse_mode="HTML")
 
-# FULL ROBUST FORCE UPDATE COMMAND (Fixed path execution)
+# FULL ROBUST FORCE UPDATE COMMAND (Fixed Git Pull & Process Restart)
 async def update_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in OWNER_IDS:
         return
@@ -320,12 +320,13 @@ async def update_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     repo_dir = Path(__file__).resolve().parent
 
     try:
-        subprocess.run(["git", "stash", "--all"], cwd=repo_dir, capture_output=True, text=True)
+        subprocess.run(["git", "reset", "--hard"], cwd=repo_dir, capture_output=True, text=True)
+        subprocess.run(["git", "stash"], cwd=repo_dir, capture_output=True, text=True)
 
         branch_proc = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=repo_dir, capture_output=True, text=True, check=True)
         active_branch = branch_proc.stdout.strip() or "main"
 
-        subprocess.run(["git", "fetch", "--all", "--prune"], cwd=repo_dir, capture_output=True, text=True, check=True)
+        subprocess.run(["git", "fetch", "origin", active_branch], cwd=repo_dir, capture_output=True, text=True, check=True)
         subprocess.run(["git", "reset", "--hard", f"origin/{active_branch}"], cwd=repo_dir, capture_output=True, text=True, check=True)
         subprocess.run(["git", "clean", "-fd"], cwd=repo_dir, capture_output=True, text=True, check=True)
 
@@ -343,7 +344,7 @@ async def update_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
 
-        os.execv(sys.executable, [sys.executable, os.path.abspath(__file__)])
+        os.execl(sys.executable, sys.executable, *sys.argv)
 
     except Exception as e:
         await status_msg.edit_text(f"❌ **Update Failed:**\n```\n{str(e)}\n```", parse_mode="Markdown")
