@@ -4,7 +4,7 @@ from telegram import Update, InlineKeyboardMarkup, ChatPermissions
 from database import get_config, save_config, get_user_warns, set_user_warns
 from utils import create_btn, make_penalty_buttons, fast_edit
 
-# Custom Duration Parser
+# Custom Smart Duration Parser
 def parse_duration_smart(text: str) -> int:
     raw = text.strip().lower()
     matches = re.findall(r'(\d+)\s*([a-zA-Z]+)', raw)
@@ -63,14 +63,13 @@ def get_tglinks_keyboard(cid: int):
     bot_icon = "✔️" if cfg.get("as_tg_bots", False) else "✖️"
 
     r1, r2 = make_penalty_buttons("astgpen_", p, cid)
-    keyboard = [
-        r1, r2,
-        [create_btn(f"🗑 Delete Messages {del_icon}", callback_data=f"astgtog_del_{cid}")]
-    ]
-    if p in ["Warn", "Mute", "Ban"]:
-        keyboard.append([create_btn(f"⏰ Set {p.title()} duration", callback_data=f"astgset_dur_{p}_{cid}")])
+    keyboard = [r1, r2]
     
+    if p in ["Warn", "Mute", "Ban"]:
+        keyboard.append([create_btn(f"! ⏰ Set {p} duration", callback_data=f"astgset_dur_{p}_{cid}")])
+
     keyboard.extend([
+        [create_btn(f"🗑 Delete Messages {del_icon}", callback_data=f"astgtog_del_{cid}")],
         [create_btn(f"🎯 Username Antispam {user_icon}", callback_data=f"astgtog_usr_{cid}")],
         [create_btn(f"🤖 Bots Antispam {bot_icon}", callback_data=f"astgtog_bot_{cid}")],
         [create_btn("⬅️ Back", callback_data=f"as_main_{cid}"), create_btn("☀️ Exceptions", callback_data=f"as_exc_{cid}")]
@@ -100,23 +99,27 @@ def get_totlinks_keyboard(cid: int):
     del_icon = "✔️" if cfg.get("as_tot_delete", False) else "✖️"
     r1, r2 = make_penalty_buttons("astotpen_", p, cid)
 
-    keyboard = [
-        r1, r2,
-        [create_btn(f"🗑 Delete Messages {del_icon}", callback_data=f"astottog_del_{cid}")]
-    ]
+    keyboard = [r1, r2]
     if p in ["Warn", "Mute", "Ban"]:
-        keyboard.append([create_btn(f"⏰ Set {p.title()} duration", callback_data=f"astotset_dur_{p}_{cid}")])
-    keyboard.append([create_btn("⬅️ Back", callback_data=f"as_main_{cid}"), create_btn("☀️ Exceptions", callback_data=f"as_exc_{cid}")])
+        keyboard.append([create_btn(f"! ⏰ Set {p} duration", callback_data=f"astotset_dur_{p}_{cid}")])
+
+    keyboard.extend([
+        [create_btn(f"🗑 Delete Messages {del_icon}", callback_data=f"astottog_del_{cid}")],
+        [create_btn("⬅️ Back", callback_data=f"as_main_{cid}"), create_btn("☀️ Exceptions", callback_data=f"as_exc_{cid}")]
+    ])
     return InlineKeyboardMarkup(keyboard)
 
 def get_totlinks_text(cid: int):
     cfg = get_config(cid)
     p = cfg.get("as_tot_penalty", "Off")
+    dur_str = cfg.get("as_tot_duration_str", "")
+    penalty_display = f"{p} {dur_str}".strip() if p in ["Warn", "Mute", "Ban"] and dur_str else p
     del_str = "Yes ✔️" if cfg.get("as_tot_delete", False) else "No ✖️"
+
     return (
         "🔗 <b>Total links block</b>\n"
         "Select punishment for users who send any external web link.\n\n"
-        f"<b>Penalty:</b> {p}\n"
+        f"<b>Penalty:</b> {penalty_display}\n"
         f"<b>Deletion:</b> {del_str}"
     )
 
@@ -211,7 +214,7 @@ def get_global_whitelist_text(cid: int):
 async def handle_antispam_callbacks(query, data: str, cid: int, user, user_states):
     cfg = get_config(cid)
 
-    # Universal matching for Anti-Spam Menu Entry
+    # Main Menu
     if (
         data.startswith("as_main_") 
         or data.startswith("cfg_view_antispam_") 
@@ -226,8 +229,10 @@ async def handle_antispam_callbacks(query, data: str, cid: int, user, user_state
     elif data.startswith("as_tglinks_"):
         await fast_edit(query, get_tglinks_text(cid), get_tglinks_keyboard(cid))
     elif data.startswith("astgpen_"):
-        cfg["as_tg_penalty"] = data.split("_")[1]
-        save_config(cid, cfg)
+        match_pen = re.search(r"astgpen_(Off|Warn|Kick|Mute|Ban)", data)
+        if match_pen:
+            cfg["as_tg_penalty"] = match_pen.group(1)
+            save_config(cid, cfg)
         await fast_edit(query, get_tglinks_text(cid), get_tglinks_keyboard(cid))
     elif data.startswith("astgtog_del_"):
         cfg["as_tg_delete"] = not cfg.get("as_tg_delete", False)
@@ -267,8 +272,10 @@ async def handle_antispam_callbacks(query, data: str, cid: int, user, user_state
     elif data.startswith("as_totlinks_"):
         await fast_edit(query, get_totlinks_text(cid), get_totlinks_keyboard(cid))
     elif data.startswith("astotpen_"):
-        cfg["as_tot_penalty"] = data.split("_")[1]
-        save_config(cid, cfg)
+        match_pen = re.search(r"astotpen_(Off|Warn|Kick|Mute|Ban)", data)
+        if match_pen:
+            cfg["as_tot_penalty"] = match_pen.group(1)
+            save_config(cid, cfg)
         await fast_edit(query, get_totlinks_text(cid), get_totlinks_keyboard(cid))
     elif data.startswith("astottog_del_"):
         cfg["as_tot_delete"] = not cfg.get("as_tot_delete", False)
@@ -306,11 +313,12 @@ async def handle_antispam_callbacks(query, data: str, cid: int, user, user_state
         mode_type, selected_cat = parts[2], parts[3]
         await fast_edit(query, get_sub_category_text(cid, mode_type), get_sub_category_keyboard(cid, mode_type, selected_cat))
     elif data.startswith("assubpen_"):
-        parts = data.split("_")
-        mode_type, selected_cat, pen_val = parts[1], parts[2], parts[3]
-        cfg[f"as_{mode_type}_{selected_cat}_pen"] = pen_val
-        save_config(cid, cfg)
-        await fast_edit(query, get_sub_category_text(cid, mode_type), get_sub_category_keyboard(cid, mode_type, selected_cat))
+        match_sub = re.search(r"assubpen_(quote|fwd)_(chan|grp|usr|bot)_(Off|Warn|Kick|Mute|Ban)", data)
+        if match_sub:
+            mode_type, selected_cat, pen_val = match_sub.group(1), match_sub.group(2), match_sub.group(3)
+            cfg[f"as_{mode_type}_{selected_cat}_pen"] = pen_val
+            save_config(cid, cfg)
+            await fast_edit(query, get_sub_category_text(cid, mode_type), get_sub_category_keyboard(cid, mode_type, selected_cat))
     elif data.startswith("assubtog_del_"):
         parts = data.split("_")
         mode_type, selected_cat = parts[2], parts[3]
@@ -453,7 +461,7 @@ async def handle_antispam_text_state(update, context, user_states):
 
 # --- 8. ACTUAL PENALTY EXECUTOR ---
 async def execute_antispam_penalty(context, chat_id: int, user, penalty: str, duration_sec: int, reason: str):
-    if penalty == "Off" or not penalty:
+    if penalty == "Off" or not penalty or penalty == "pen":
         return
 
     until_time = int(time.time() + duration_sec) if duration_sec > 0 else 0
@@ -518,7 +526,7 @@ async def inspect_antispam_message(update: Update, context) -> bool:
 
     # 1. Total Links Check
     tot_penalty = cfg.get("as_tot_penalty", "Off")
-    if tot_penalty != "Off":
+    if tot_penalty not in ["Off", "pen"]:
         has_url = any(e.type in ["url", "text_link"] for e in entities) or re.search(r'https?://[^\s]+', text)
         if has_url:
             if cfg.get("as_tot_delete", False):
@@ -532,7 +540,7 @@ async def inspect_antispam_message(update: Update, context) -> bool:
 
     # 2. Telegram Links Check
     tg_penalty = cfg.get("as_tg_penalty", "Off")
-    if tg_penalty != "Off":
+    if tg_penalty not in ["Off", "pen"]:
         has_tg = "t.me/" in text or "telegram.me/" in text or (cfg.get("as_tg_username", False) and "@" in text)
         if has_tg:
             if cfg.get("as_tg_delete", False):
@@ -548,7 +556,7 @@ async def inspect_antispam_message(update: Update, context) -> bool:
     if msg.forward_from_chat or msg.forward_from:
         fwd_cat = "chan" if (msg.forward_from_chat and msg.forward_from_chat.type == "channel") else "grp"
         fwd_pen = cfg.get(f"as_fwd_{fwd_cat}_pen", "Off")
-        if fwd_pen != "Off":
+        if fwd_pen not in ["Off", "pen"]:
             if cfg.get(f"as_fwd_{fwd_cat}_del", False):
                 try:
                     await msg.delete()
