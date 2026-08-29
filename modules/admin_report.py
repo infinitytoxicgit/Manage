@@ -1,4 +1,5 @@
 import html
+import re
 from telegram import Update, InlineKeyboardMarkup
 from database import get_config, save_config
 from utils import create_btn, fast_edit, is_user_admin
@@ -24,7 +25,7 @@ def get_report_main_keyboard(cid: int):
         [create_btn(f"🔔 Tag Admins {tag_admins}", callback_data=f"reptog_tagadmins_{cid}")]
     ]
 
-    # Show "Select administrators" if Tag Admins is Active
+    # Show "Select administrators" if Tag Admins is enabled
     if cfg.get("rep_tag_admins", False):
         keyboard.append([create_btn("🔔👮 Select administrators", callback_data=f"rep_seladmins_{cid}")])
 
@@ -129,7 +130,12 @@ async def handle_admin_report_callbacks(query, data: str, cid: int, user, user_s
     cfg = get_config(cid)
 
     # Main Report Dashboard
-    if data.startswith("cfg_view_admincmd_") or data.startswith("rep_main_"):
+    if (
+        data.startswith("cfg_view_admincmd_") 
+        or data.startswith("cfg_view_admin_") 
+        or data.startswith("cfg_view_report_") 
+        or data.startswith("rep_main_")
+    ):
         await fast_edit(query, get_report_main_text(cid), get_report_main_keyboard(cid))
 
     # Target Switchers
@@ -234,7 +240,7 @@ async def handle_report_command(update: Update, context):
     if not msg or not chat or chat.type == "private":
         return
 
-    # Admins / Mods cannot use @admin command
+    # Admins / Mods cannot trigger the @admin command
     if await is_user_admin(chat.id, user.id, context):
         return
 
@@ -281,7 +287,7 @@ async def handle_report_command(update: Update, context):
     confirm_text = f"🚨 <b>Report sent to group staff!</b>\n{tag_str}".strip()
     bot_conf_msg = await msg.reply_text(confirm_text, parse_mode="HTML")
 
-    # Destination Delivery
+    # Destination Delivery Message
     report_card = (
         f"🚨 <b>New Report in {html.escape(chat.title)}</b>\n\n"
         f"👤 <b>Reported by:</b> {user.mention_html()} (<code>{user.id}</code>)\n"
