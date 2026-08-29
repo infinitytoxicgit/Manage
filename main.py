@@ -22,7 +22,7 @@ from utils import (
 from modules.settings import get_page1_settings_keyboard, get_page2_settings_keyboard
 from modules.welcome import handle_welcome_callbacks
 from modules.goodbye import handle_goodbye_callbacks
-from modules.antiflood import handle_antiflood_callbacks
+from modules.antiflood import handle_antiflood_callbacks, get_antiflood_text, get_antiflood_main_keyboard
 from modules.alphabets import handle_alphabets_callbacks
 from modules.captcha import handle_captcha_callbacks
 from modules.checks import handle_checks_callbacks
@@ -161,12 +161,13 @@ async def interactive_state_processor(update: Update, context: ContextTypes.DEFA
         user_states.pop(state_key, None)
         return False
 
-    state = user_states.pop(state_key)
+    state = user_states.get(state_key)
     cfg = get_config(chat_id)
     msg = update.message
     text = msg.text or msg.caption or ""
 
     if state == "awaiting_reg_text":
+        user_states.pop(state_key, None)
         cfg["rules_text"] = text
         save_config(chat_id, cfg)
         kb = [[create_btn("⬅️ Back", callback_data=f"reg_custom_msg_{chat_id}")]]
@@ -174,6 +175,7 @@ async def interactive_state_processor(update: Update, context: ContextTypes.DEFA
         return True
 
     elif state == "awaiting_reg_media":
+        user_states.pop(state_key, None)
         if msg.photo:
             cfg["rules_media_id"] = msg.photo[-1].file_id
             cfg["rules_media_type"] = "photo"
@@ -185,6 +187,7 @@ async def interactive_state_processor(update: Update, context: ContextTypes.DEFA
             cfg["rules_media_type"] = "sticker"
         else:
             await msg.reply_text("❌ Kripya photo, video ya sticker send karein.")
+            user_states[state_key] = state
             return True
         if msg.caption:
             cfg["rules_text"] = msg.caption
@@ -194,6 +197,7 @@ async def interactive_state_processor(update: Update, context: ContextTypes.DEFA
         return True
 
     elif state == "awaiting_reg_buttons":
+        user_states.pop(state_key, None)
         cfg["rules_buttons_raw"] = text
         save_config(chat_id, cfg)
         kb = parse_custom_buttons(text, chat_id)
@@ -205,7 +209,7 @@ async def interactive_state_processor(update: Update, context: ContextTypes.DEFA
     elif state.startswith("awaiting_flood_dur_"):
         raw_t = text.strip().lower()
         
-        # Strict unit check to prevent random text like '39 hot' from being accepted
+        # Strict unit validation to block random text like '30 hot'
         valid_units = ['sec', 'second', 'secs', 'seconds', 'min', 'mins', 'minute', 'minutes', 'hr', 'hrs', 'hour', 'hours', 'day', 'days', 'month', 'months', 'yr', 'yrs', 'year', 'years', 's', 'm', 'h', 'd', 'mo', 'y']
         has_valid_unit = any(unit in raw_t for unit in valid_units)
         
@@ -222,15 +226,18 @@ async def interactive_state_processor(update: Update, context: ContextTypes.DEFA
                 elif 'mo' in raw_t: parsed_sec = val * 2592000
                 elif 'y' in raw_t: parsed_sec = val * 31536000
 
+        # If invalid text or less than 30 seconds, reject it cleanly
         if parsed_sec < 30 or not has_valid_unit:
             await msg.reply_text(
-                "❌ <b>Invalid format!</b> Minimum duration is 30 seconds.\n"
-                "<i>Example:</i> <code>10 minutes</code>, <code>2 hours</code>, <code>30 seconds</code>\n\n"
+                "❌ <b>Invalid duration format!</b>\n"
+                "Minimum duration is 30 seconds.\n"
+                "<i>Example:</i> <code>10 min</code>, <code>3 months</code>, <code>2 years</code>, <code>30s</code>\n\n"
                 "Please try again:"
             , parse_mode="HTML")
-            user_states[state_key] = state  # Keep waiting state active
             return True
 
+        # Successful save
+        user_states.pop(state_key, None)
         cfg["flood_duration_sec"] = parsed_sec
         cfg["flood_duration_str"] = text.strip()
         save_config(chat_id, cfg)
@@ -240,8 +247,6 @@ async def interactive_state_processor(update: Update, context: ContextTypes.DEFA
         except Exception:
             pass
 
-        from modules.antiflood import get_antiflood_text, get_antiflood_main_keyboard
-        
         if msg.reply_to_message:
             try:
                 await context.bot.edit_message_text(
