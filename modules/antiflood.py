@@ -97,7 +97,7 @@ async def handle_antiflood_callbacks(query, data: str, cid: int, user, user_stat
         await query.answer("Duration removed!")
         await handle_antiflood_callbacks(query, f"cfg_view_flood_{cid}", cid, user, user_states)
 
-# Complete validation and state processing for duration inside the module itself
+# Dedicated text handler for Antiflood duration inputs
 async def handle_antiflood_text_state(update, context, user_states):
     msg = update.message
     if not msg or not msg.from_user:
@@ -116,7 +116,10 @@ async def handle_antiflood_text_state(update, context, user_states):
     text = msg.text or msg.caption or ""
     raw_t = text.strip().lower()
 
-    # Strict validation to block invalid words like 'hot'
+    # Common spelling fixes for units (e.g. mis, mi -> min, sec -> s)
+    raw_t = re.sub(r'\bmis\b', 'min', raw_t)
+    raw_t = re.sub(r'\bmisecs\b', 'secs', raw_t)
+
     valid_units = ['sec', 'second', 'secs', 'seconds', 'min', 'mins', 'minute', 'minutes', 'hr', 'hrs', 'hour', 'hours', 'day', 'days', 'month', 'months', 'yr', 'yrs', 'year', 'years', 's', 'm', 'h', 'd', 'mo', 'y']
     has_valid_unit = any(unit in raw_t for unit in valid_units)
 
@@ -132,31 +135,33 @@ async def handle_antiflood_text_state(update, context, user_states):
             elif 'mo' in raw_t: parsed_sec = val * 2592000
             elif 'y' in raw_t: parsed_sec = val * 31536000
 
-    # Agar format galat hai ya 30 seconds se kam hai toh error bhej kar wahi state active rakho
+    # Agar format galat hai ya 30 seconds se kam hai
     if parsed_sec < 30 or not has_valid_unit:
-        await msg.reply_text(
+        err_msg = await msg.reply_text(
             "❌ <b>Invalid duration format!</b>\n"
             "Minimum duration is 30 seconds.\n"
             "<i>Example:</i> <code>10 min</code>, <code>3 months</code>, <code>2 years</code>, <code>30s</code>\n\n"
             "Please try again:",
             parse_mode="HTML"
         )
+        try:
+            await msg.delete()
+        except Exception:
+            pass
         return True
 
-    # Sahi time milne par state clear karo aur database me permanently save karo
+    # Sahi time milne par state clear karo aur permanent database me save karo
     user_states.pop(state_key, None)
     cfg = get_config(chat_id)
     cfg["flood_duration_sec"] = parsed_sec
     cfg["flood_duration_str"] = text.strip()
     save_config(chat_id, cfg)
 
-    # User ka input message delete kar do taaki chat clean rahe
     try:
         await msg.delete()
     except Exception:
         pass
 
-    # Agar reply message maujood hai toh usko edit karke seedha Antiflood menu dikha do
     if msg.reply_to_message:
         try:
             await context.bot.edit_message_text(
