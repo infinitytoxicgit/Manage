@@ -1,5 +1,11 @@
 import html
 import logging
+import re
+import urllib.parse
+import urllib.request
+import json
+from telegram import Update
+from telegram.ext import ContextTypes
 from database import get_config, save_config
 from utils import (
     InlineKeyboardMarkup,
@@ -32,12 +38,9 @@ POPULAR_LANGUAGES = [
 
 def perform_google_translate_sync(text: str, target_lang: str) -> str:
     try:
-        import urllib.parse
-        import urllib.request
         url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl={target_lang}&dt=t&q={urllib.parse.quote(text)}"
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req, timeout=5) as response:
-            import json
             res = json.loads(response.read().decode("utf-8"))
             return "".join([item[0] for item in res[0] if item and item[0]])
     except Exception as e:
@@ -183,7 +186,6 @@ def get_cmd_permissions_keyboard(chat_id: int):
     keyboard.append([create_btn("⬅️ Back", callback_data=f"cfg_view_reg_{chat_id}")])
     return InlineKeyboardMarkup(keyboard)
 
-
 # TRANSLATE COMMAND EXECUTION (Strictly bound to Settings Permissions)
 async def translate_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
@@ -195,7 +197,6 @@ async def translate_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cfg = get_config(chat.id)
     perm = cfg.get("perm_translate", "everyone")
 
-    # Enforcement: Agar 'nobody' hai ya 'staff' hai aur user admin nahi hai, toh return kar jao
     if perm == "nobody":
         return
     if perm == "staff" and not await is_user_admin(chat.id, user.id, context):
@@ -207,7 +208,6 @@ async def translate_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif context.args:
         target_text = " ".join(context.args)
     elif msg.text:
-        import re
         parts = re.split(r"^/translate(?:@\w+)?\s*", msg.text.strip(), flags=re.IGNORECASE)
         if len(parts) > 1 and parts[1].strip():
             target_text = parts[1].strip()
@@ -240,11 +240,9 @@ async def translate_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prompt_text = f"🌐 <b>Select language to translate:</b>\n\n<blockquote>{html.escape(target_text[:300])}</blockquote>"
     await msg.reply_text(prompt_text, reply_markup=get_translate_keyboard(user.id, chat.id), parse_mode="HTML")
 
-
 async def handle_regulations_callbacks(
     query, data: str, cid: int, user, chat, user_states, context
 ):
-    # 1. TRANSLATION ACTIONS
     if data.startswith("trcancel_"):
         parts = data.split("_")
         target_uid = int(parts[1])
@@ -291,7 +289,6 @@ async def handle_regulations_callbacks(
         await fast_edit(query, out_msg, None)
         return
 
-    # 2. ADMIN SETTINGS ACTIONS
     if not await is_user_admin(cid, user.id, context):
         try:
             await query.answer(
