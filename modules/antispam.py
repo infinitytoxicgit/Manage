@@ -4,7 +4,7 @@ from telegram import Update, InlineKeyboardMarkup, ChatPermissions
 from database import get_config, save_config, get_user_warns, set_user_warns
 from utils import create_btn, fast_edit
 
-# Custom Duration Parser for Anti-Spam
+# Custom Duration Parser
 def parse_duration_smart(text: str) -> int:
     raw = text.strip().lower()
     matches = re.findall(r'(\d+)\s*([a-zA-Z]+)', raw)
@@ -37,24 +37,19 @@ def parse_duration_smart(text: str) -> int:
 
     return total_seconds if matched_any else 0
 
-# Visual helper for penalty buttons with active indicator colors
-def build_penalty_matrix(prefix: str, current_val: str, cid: int):
+# Penalty Button Grid with Theme Styling
+def make_styled_penalty_grid(prefix: str, current_val: str, cid: int):
     val = current_val or "Off"
     
-    btn_off = f"❌ Off" if val != "Off" else "🔴 [ Off ]"
-    btn_warn = f"! Warn" if val != "Warn" else "⚠️ [ Warn ]"
-    btn_kick = f"! Kick" if val != "Kick" else "⚡ [ Kick ]"
-    btn_mute = f"🔇 Mute" if val != "Mute" else "🔇 [ Mute ]"
-    btn_ban = f"🚫 Ban" if val != "Ban" else "⛔ [ Ban ]"
-
+    # Check styles: Active one gets styled/colored
     r1 = [
-        create_btn(btn_off, callback_data=f"{prefix}Off_{cid}"),
-        create_btn(btn_warn, callback_data=f"{prefix}Warn_{cid}"),
-        create_btn(btn_kick, callback_data=f"{prefix}Kick_{cid}")
+        create_btn("❌ Off", callback_data=f"{prefix}Off_{cid}", style="success" if val == "Off" else None),
+        create_btn("! Warn", callback_data=f"{prefix}Warn_{cid}", style="success" if val == "Warn" else None),
+        create_btn("! Kick", callback_data=f"{prefix}Kick_{cid}", style="success" if val == "Kick" else None)
     ]
     r2 = [
-        create_btn(btn_mute, callback_data=f"{prefix}Mute_{cid}"),
-        create_btn(btn_ban, callback_data=f"{prefix}Ban_{cid}")
+        create_btn("🔊 Mute", callback_data=f"{prefix}Mute_{cid}", style="success" if val == "Mute" else None),
+        create_btn("🚫 Ban", callback_data=f"{prefix}Ban_{cid}", style="success" if val == "Ban" else None)
     ]
     return r1, r2
 
@@ -79,20 +74,20 @@ def get_antispam_main_text():
 def get_tglinks_keyboard(cid: int):
     cfg = get_config(cid)
     p = cfg.get("as_tg_penalty", "Off")
-    del_icon = "🟢 Yes" if cfg.get("as_tg_delete", False) else "🔴 No"
-    user_icon = "🟢 Yes" if cfg.get("as_tg_username", False) else "🔴 No"
-    bot_icon = "🟢 Yes" if cfg.get("as_tg_bots", False) else "🔴 No"
+    del_icon = "✔️" if cfg.get("as_tg_delete", False) else "✖️"
+    user_icon = "✔️" if cfg.get("as_tg_username", False) else "✖️"
+    bot_icon = "✔️" if cfg.get("as_tg_bots", False) else "✖️"
 
-    r1, r2 = build_penalty_matrix("astgpen_", p, cid)
+    r1, r2 = make_styled_penalty_grid("astgpen_", p, cid)
     keyboard = [r1, r2]
     
     if p in ["Warn", "Mute", "Ban"]:
-        keyboard.append([create_btn(f"⏰ Set {p} duration", callback_data=f"astgset_dur_{p}_{cid}")])
+        keyboard.append([create_btn(f"! ⏰ Set {p} duration", callback_data=f"astgset_dur_{p}_{cid}", style="primary")])
 
     keyboard.extend([
-        [create_btn(f"🗑 Delete Messages: {del_icon}", callback_data=f"astgtog_del_{cid}")],
-        [create_btn(f"🎯 Username Antispam: {user_icon}", callback_data=f"astgtog_usr_{cid}")],
-        [create_btn(f"🤖 Bots Antispam: {bot_icon}", callback_data=f"astgtog_bot_{cid}")],
+        [create_btn(f"🗑 Delete Messages {del_icon}", callback_data=f"astgtog_del_{cid}")],
+        [create_btn(f"🎯 Username Antispam {user_icon}", callback_data=f"astgtog_usr_{cid}")],
+        [create_btn(f"🤖 Bots Antispam {bot_icon}", callback_data=f"astgtog_bot_{cid}")],
         [create_btn("⬅️ Back", callback_data=f"as_main_{cid}"), create_btn("☀️ Exceptions", callback_data=f"as_exc_{cid}")]
     ])
     return InlineKeyboardMarkup(keyboard)
@@ -102,14 +97,14 @@ def get_tglinks_text(cid: int):
     p = cfg.get("as_tg_penalty", "Off")
     dur_str = cfg.get("as_tg_duration_str", "")
     penalty_display = f"{p} {dur_str}".strip() if p in ["Warn", "Mute", "Ban"] and dur_str else p
-    del_str = "Yes 🟢" if cfg.get("as_tg_delete", False) else "No 🔴"
+    del_str = "Yes ✔️" if cfg.get("as_tg_delete", False) else "No ✖️"
 
     return (
         "📖 <b>Telegram links</b>\n"
         "From this menu you can set a punishment for users who send messages that contain Telegram links.\n\n"
         "🎯 <b>Username Antispam:</b> this option triggers the antispam when a username considered spam is sent.\n\n"
         "🤖 <b>Bots Antispam:</b> this option triggers the antispam when a Bot link is sent.\n\n"
-        f"<b>Penalty:</b> <code>{penalty_display}</code>\n"
+        f"<b>Penalty:</b> {penalty_display}\n"
         f"<b>Deletion:</b> {del_str}"
     )
 
@@ -117,16 +112,16 @@ def get_tglinks_text(cid: int):
 def get_totlinks_keyboard(cid: int):
     cfg = get_config(cid)
     p = cfg.get("as_tot_penalty", "Off")
-    del_icon = "🟢 Yes" if cfg.get("as_tot_delete", False) else "🔴 No"
+    del_icon = "✔️" if cfg.get("as_tot_delete", False) else "✖️"
     
-    r1, r2 = build_penalty_matrix("astotpen_", p, cid)
+    r1, r2 = make_styled_penalty_grid("astotpen_", p, cid)
     keyboard = [r1, r2]
 
     if p in ["Warn", "Mute", "Ban"]:
-        keyboard.append([create_btn(f"⏰ Set {p} duration", callback_data=f"astotset_dur_{p}_{cid}")])
+        keyboard.append([create_btn(f"! ⏰ Set {p} duration", callback_data=f"astotset_dur_{p}_{cid}", style="primary")])
 
     keyboard.extend([
-        [create_btn(f"🗑 Delete Messages: {del_icon}", callback_data=f"astottog_del_{cid}")],
+        [create_btn(f"🗑 Delete Messages {del_icon}", callback_data=f"astottog_del_{cid}")],
         [create_btn("⬅️ Back", callback_data=f"as_main_{cid}"), create_btn("☀️ Exceptions", callback_data=f"as_exc_{cid}")]
     ])
     return InlineKeyboardMarkup(keyboard)
@@ -136,41 +131,39 @@ def get_totlinks_text(cid: int):
     p = cfg.get("as_tot_penalty", "Off")
     dur_str = cfg.get("as_tot_duration_str", "")
     penalty_display = f"{p} {dur_str}".strip() if p in ["Warn", "Mute", "Ban"] and dur_str else p
-    del_str = "Yes 🟢" if cfg.get("as_tot_delete", False) else "No 🔴"
+    del_str = "Yes ✔️" if cfg.get("as_tot_delete", False) else "No ✖️"
 
     return (
         "🔗 <b>Total links block</b>\n"
         "Select punishment for users who send any external web link.\n\n"
-        f"<b>Penalty:</b> <code>{penalty_display}</code>\n"
+        f"<b>Penalty:</b> {penalty_display}\n"
         f"<b>Deletion:</b> {del_str}"
     )
 
-# --- 4. QUOTE / FORWARDING MENU ---
+# --- 4. QUOTE / FORWARDING MENU (With Primary Tabs & Success Colors) ---
 def get_sub_category_keyboard(cid: int, mode_type: str, selected_cat: str):
     cfg = get_config(cid)
     key_prefix = f"as_{mode_type}_{selected_cat}"
     p = cfg.get(f"{key_prefix}_pen", "Off")
-    del_icon = "🟢 Yes" if cfg.get(f"{key_prefix}_del", False) else "🔴 No"
+    del_icon = "✔️" if cfg.get(f"{key_prefix}_del", False) else "✖️"
 
-    def mark(cat_key, label):
-        return f"🟢 [ {label} ]" if selected_cat == cat_key else label
-
+    # Tabs styling
     cat_row1 = [
-        create_btn(mark("chan", "📣 Channels"), callback_data=f"as_{mode_type}_chan_{cid}"),
-        create_btn(mark("grp", "👥 Groups"), callback_data=f"as_{mode_type}_grp_{cid}")
+        create_btn("» 📣 Channels «" if selected_cat == "chan" else "📣 Channels", callback_data=f"as_{mode_type}_chan_{cid}", style="primary" if selected_cat == "chan" else None),
+        create_btn("» 👥 Groups «" if selected_cat == "grp" else "👥 Groups", callback_data=f"as_{mode_type}_grp_{cid}", style="primary" if selected_cat == "grp" else None)
     ]
     cat_row2 = [
-        create_btn(mark("usr", "👤 Users"), callback_data=f"as_{mode_type}_usr_{cid}"),
-        create_btn(mark("bot", "🤖 Bots"), callback_data=f"as_{mode_type}_bot_{cid}")
+        create_btn("» 👤 Users «" if selected_cat == "usr" else "👤 Users", callback_data=f"as_{mode_type}_usr_{cid}", style="primary" if selected_cat == "usr" else None),
+        create_btn("» 🤖 Bots «" if selected_cat == "bot" else "🤖 Bots", callback_data=f"as_{mode_type}_bot_{cid}", style="primary" if selected_cat == "bot" else None)
     ]
 
-    r1, r2 = build_penalty_matrix(f"assub_{mode_type}_{selected_cat}_", p, cid)
+    r1, r2 = make_styled_penalty_grid(f"assub_{mode_type}_{selected_cat}_", p, cid)
     keyboard = [
         cat_row1,
         cat_row2,
         [create_btn("─────────────", callback_data="none")],
         r1, r2,
-        [create_btn(f"🗑 Delete Messages: {del_icon}", callback_data=f"asdel_{mode_type}_{selected_cat}_{cid}")],
+        [create_btn(f"🗑 Delete Messages {del_icon}", callback_data=f"asdel_{mode_type}_{selected_cat}_{cid}")],
         [create_btn("⬅️ Back", callback_data=f"as_main_{cid}"), create_btn("☀️ Exceptions", callback_data=f"as_exc_{cid}")]
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -187,10 +180,10 @@ def get_sub_category_text(cid: int, mode_type: str):
     return (
         f"💭 <b>{title}</b>\n"
         f"Select punishment for users who send messages containing {title.lower()}s from external chats.\n\n"
-        f"📣 <b>Channels</b>\n └ <code>{chan_p}</code>\n"
-        f"👥 <b>Groups</b>\n └ <code>{grp_p}</code>\n"
-        f"👤 <b>Users</b>\n └ <code>{usr_p}</code>\n"
-        f"🤖 <b>Bots</b>\n └ <code>{bot_p}</code>"
+        f"📣 <b>Channels</b>\n └ {chan_p}\n"
+        f"👥 <b>Groups</b>\n └ {grp_p}\n"
+        f"👤 <b>Users</b>\n └ {usr_p}\n"
+        f"🤖 <b>Bots</b>\n └ {bot_p}"
     )
 
 # --- 5. EXCEPTIONS & WHITELIST MENU ---
@@ -213,11 +206,12 @@ def get_exceptions_text():
 def get_global_whitelist_keyboard(cid: int):
     cfg = get_config(cid)
     is_active = cfg.get("as_global_whitelist", True)
-    on_btn = "🟢 [ Active ]" if is_active else "✔️ Turn on"
-    off_btn = "🔴 [ Off ]" if not is_active else "✖️ Turn off"
     
     keyboard = [
-        [create_btn(on_btn, callback_data=f"asexc_g_on_{cid}"), create_btn(off_btn, callback_data=f"asexc_g_off_{cid}")],
+        [
+            create_btn("✔️ Turn on", callback_data=f"asexc_g_on_{cid}", style="success" if is_active else None),
+            create_btn("✖️ Turn off", callback_data=f"asexc_g_off_{cid}", style="danger" if not is_active else None)
+        ],
         [create_btn("📖 Global Whitelist ↗️", url="https://t.me/telegram")],
         [create_btn("⬅️ Back", callback_data=f"as_exc_{cid}")]
     ]
@@ -225,7 +219,7 @@ def get_global_whitelist_keyboard(cid: int):
 
 def get_global_whitelist_text(cid: int):
     cfg = get_config(cid)
-    status = "Active 🟢" if cfg.get("as_global_whitelist", True) else "Disabled 🔴"
+    status = "Active" if cfg.get("as_global_whitelist", True) else "Disabled"
     return (
         "<b>Global Whitelist:</b>\n"
         "It's a list, created by our staff, of channels and groups that offer serious content, "
@@ -235,16 +229,22 @@ def get_global_whitelist_text(cid: int):
         f"<b>Status:</b> {status}"
     )
 
-# --- 6. UNIFIED CALLBACK HANDLER (NO FREEZING) ---
+# --- 6. CALLBACK ROUTER ---
 async def handle_antispam_callbacks(query, data: str, cid: int, user, user_states):
     cfg = get_config(cid)
 
-    # 1. Main Antispam Dashboard
-    if data.startswith("as_main_") or data.startswith("cfg_view_antispam_") or data.startswith("cfg_view_spam_") or data.startswith("aspam_main_"):
+    # Main Menu
+    if (
+        data.startswith("as_main_") 
+        or data.startswith("cfg_view_antispam_") 
+        or data.startswith("cfg_view_spam_") 
+        or data.startswith("cfg_view_aspam_") 
+        or data.startswith("aspam_main_")
+    ):
         user_states.pop((cid, user.id), None)
         await fast_edit(query, get_antispam_main_text(), get_antispam_main_keyboard(cid))
     
-    # 2. Telegram Links Section
+    # Telegram Links
     elif data.startswith("as_tglinks_"):
         await fast_edit(query, get_tglinks_text(cid), get_tglinks_keyboard(cid))
     elif data.startswith("astgpen_"):
@@ -276,7 +276,7 @@ async def handle_antispam_callbacks(query, data: str, cid: int, user, user_state
         )
         kb = [
             [create_btn("0️⃣ Remove duration", callback_data=f"astgrem_dur_{cid}")],
-            [create_btn("❌ Cancel", callback_data=f"as_tglinks_{cid}")]
+            [create_btn("❌ Cancel", callback_data=f"as_tglinks_{cid}", style="danger")]
         ]
         await fast_edit(query, text, InlineKeyboardMarkup(kb))
     elif data.startswith("astgrem_dur_"):
@@ -286,7 +286,7 @@ async def handle_antispam_callbacks(query, data: str, cid: int, user, user_state
         await query.answer("Duration removed!")
         await fast_edit(query, get_tglinks_text(cid), get_tglinks_keyboard(cid))
 
-    # 3. Total Links Block Section
+    # Total Links Block
     elif data.startswith("as_totlinks_"):
         await fast_edit(query, get_totlinks_text(cid), get_totlinks_keyboard(cid))
     elif data.startswith("astotpen_"):
@@ -310,7 +310,7 @@ async def handle_antispam_callbacks(query, data: str, cid: int, user, user_state
         )
         kb = [
             [create_btn("0️⃣ Remove duration", callback_data=f"astotrem_dur_{cid}")],
-            [create_btn("❌ Cancel", callback_data=f"as_totlinks_{cid}")]
+            [create_btn("❌ Cancel", callback_data=f"as_totlinks_{cid}", style="danger")]
         ]
         await fast_edit(query, text, InlineKeyboardMarkup(kb))
     elif data.startswith("astotrem_dur_"):
@@ -320,7 +320,7 @@ async def handle_antispam_callbacks(query, data: str, cid: int, user, user_state
         await query.answer("Duration removed!")
         await fast_edit(query, get_totlinks_text(cid), get_totlinks_keyboard(cid))
 
-    # 4. Quote / Forwarding Sub-Categories
+    # Quote & Forwarding Sub-Categories
     elif data.startswith("as_quote_") or data.startswith("as_fwd_"):
         parts = data.split("_")
         mode_type = parts[1]
@@ -340,7 +340,7 @@ async def handle_antispam_callbacks(query, data: str, cid: int, user, user_state
         save_config(cid, cfg)
         await fast_edit(query, get_sub_category_text(cid, mode_type), get_sub_category_keyboard(cid, mode_type, selected_cat))
 
-    # 5. Exceptions & Whitelists
+    # Exceptions & Whitelists
     elif data.startswith("as_exc_") or data.startswith("asexc_main_"):
         await fast_edit(query, get_exceptions_text(), get_exceptions_keyboard(cid))
     elif data.startswith("asexc_show_"):
@@ -349,11 +349,11 @@ async def handle_antispam_callbacks(query, data: str, cid: int, user, user_state
         await query.answer(f"Whitelist:\n{wl_text}", show_alert=True)
     elif data.startswith("asexc_add_"):
         user_states[(cid, user.id)] = "awaiting_as_wl_add"
-        kb = [[create_btn("❌ Cancel", callback_data=f"as_exc_{cid}")] ]
+        kb = [[create_btn("❌ Cancel", callback_data=f"as_exc_{cid}", style="danger")]]
         await fast_edit(query, "Send the username or link to add to the whitelist:\n\nExample: <code>@examplechannel</code>", InlineKeyboardMarkup(kb))
     elif data.startswith("asexc_rem_"):
         user_states[(cid, user.id)] = "awaiting_as_wl_rem"
-        kb = [[create_btn("❌ Cancel", callback_data=f"as_exc_{cid}")] ]
+        kb = [[create_btn("❌ Cancel", callback_data=f"as_exc_{cid}", style="danger")]]
         await fast_edit(query, "Send the username or link to remove from whitelist:", InlineKeyboardMarkup(kb))
     elif data.startswith("asexc_global_"):
         await fast_edit(query, get_global_whitelist_text(cid), get_global_whitelist_keyboard(cid))
@@ -386,11 +386,11 @@ async def handle_antispam_text_state(update, context, user_states):
     text = msg.text or ""
     cfg = get_config(chat_id)
 
-    # Telegram links duration
+    # 1. Telegram links duration
     if state.startswith("awaiting_as_tg_dur_"):
         parsed_sec = parse_duration_smart(text)
         if parsed_sec < 30:
-            kb = [[create_btn("❌ Cancel", callback_data=f"as_tglinks_{chat_id}")] ]
+            kb = [[create_btn("❌ Cancel", callback_data=f"as_tglinks_{chat_id}", style="danger")]]
             await msg.reply_text(
                 "❌ <b>Invalid duration format!</b>\nMinimum duration is 30 seconds.\n<i>Example:</i> <code>10 min</code>, <code>3 months</code>, <code>2 years</code>, <code>30s</code>\n\nPlease try again:",
                 reply_markup=InlineKeyboardMarkup(kb),
@@ -415,11 +415,11 @@ async def handle_antispam_text_state(update, context, user_states):
         )
         return True
 
-    # Total links duration
+    # 2. Total links duration
     elif state.startswith("awaiting_as_tot_dur_"):
         parsed_sec = parse_duration_smart(text)
         if parsed_sec < 30:
-            kb = [[create_btn("❌ Cancel", callback_data=f"as_totlinks_{chat_id}")] ]
+            kb = [[create_btn("❌ Cancel", callback_data=f"as_totlinks_{chat_id}", style="danger")]]
             await msg.reply_text(
                 "❌ <b>Invalid duration format!</b>\nMinimum duration is 30 seconds.\n<i>Example:</i> <code>10 min</code>, <code>3 months</code>, <code>2 years</code>, <code>30s</code>\n\nPlease try again:",
                 reply_markup=InlineKeyboardMarkup(kb),
@@ -444,7 +444,7 @@ async def handle_antispam_text_state(update, context, user_states):
         )
         return True
 
-    # Whitelist Add
+    # 3. Whitelist Add
     elif state == "awaiting_as_wl_add":
         user_states.pop(state_key, None)
         wl = cfg.get("as_whitelist", [])
@@ -456,7 +456,7 @@ async def handle_antispam_text_state(update, context, user_states):
         await msg.reply_text(f"✅ <code>{clean_item}</code> added to Whitelist!", reply_markup=get_exceptions_keyboard(chat_id), parse_mode="HTML")
         return True
 
-    # Whitelist Remove
+    # 4. Whitelist Remove
     elif state == "awaiting_as_wl_rem":
         user_states.pop(state_key, None)
         wl = cfg.get("as_whitelist", [])
@@ -484,10 +484,10 @@ async def execute_antispam_penalty(context, chat_id: int, user, penalty: str, du
             permissions = ChatPermissions(can_send_messages=False)
             if until_time > 0:
                 await context.bot.restrict_chat_member(chat_id, user.id, permissions=permissions, until_date=until_time)
-                await context.bot.send_message(chat_id, f"🔇 {user.mention_html()} muted for <b>{duration_sec}s</b> ({reason}).", parse_mode="HTML")
+                await context.bot.send_message(chat_id, f"🔊 {user.mention_html()} muted for <b>{duration_sec}s</b> ({reason}).", parse_mode="HTML")
             else:
                 await context.bot.restrict_chat_member(chat_id, user.id, permissions=permissions)
-                await context.bot.send_message(chat_id, f"🔇 {user.mention_html()} muted permanently ({reason}).", parse_mode="HTML")
+                await context.bot.send_message(chat_id, f"🔊 {user.mention_html()} muted permanently ({reason}).", parse_mode="HTML")
 
         elif penalty == "Ban":
             if until_time > 0:
