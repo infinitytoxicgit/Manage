@@ -1,5 +1,6 @@
+import re
 from database import get_config, save_config
-from utils import create_btn, make_penalty_buttons, fast_edit, InlineKeyboardMarkup
+from utils import create_btn, make_penalty_buttons, fast_edit, InlineKeyboardMarkup, parse_time_duration
 
 def get_antiflood_main_keyboard(chat_id: int):
     cfg = get_config(chat_id)
@@ -33,7 +34,6 @@ def get_antiflood_text(chat_id: int):
     )
 
 async def handle_antiflood_callbacks(query, data: str, cid: int, user, user_states):
-    # Fetch exact group configuration from SQLite database (persistent across restarts)
     cfg = get_config(cid)
 
     if data.startswith("cfg_view_flood_"):
@@ -96,3 +96,74 @@ async def handle_antiflood_callbacks(query, data: str, cid: int, user, user_stat
         save_config(cid, cfg)
         await query.answer("Duration removed!")
         await handle_antiflood_callbacks(query, f"cfg_view_flood_{cid}", cid, user, user_states)
+
+# Dedicated text handler for Antiflood duration inputs inside the module itself
+async def handle_antiflood_text_state(update, context, user_states):
+    msg = update.message
+    if not msg or not msg.from_user:
+        return False
+    chat_id = update.effective_chat.id
+    user_id = msg.from_user.id
+    state_key = (chat_id, user_id)
+
+    if state_key not in user_states:
+        return False
+
+    state = user_states.get(state_key)
+    if not state or not state.startswith("awaiting_flood_dur_"):
+        return False
+
+    user_states.pop(state_key, None)
+    text = msg.text or ""
+    raw_t = text.strip().lower()
+
+    # Smart parsing for shorthand notations (30 min, 10 mins, 3 months, 2 yrs, etc.)
+    valid_units = ['sec', 'second', 'secs', 'seconds', 'min', 'mins', 'minute', 'minutes', 'hr', 'hrs', 'hour', 'hours', 'day', 'days', 'month', 'months', 'yr', 'yrs', 'year', 'years', 's', 'm', 'h', 'd', 'mo', 'y']
+    has_valid_unit = any(unit in raw_t for unit in valid_units)
+
+    parsed_sec = parse_time_duration(raw_t)
+    if parsed_sec <= 0 or not has_valid_unit:
+        match_num = re.search(r'\d+', raw_t)
+        if match_num and has_valid_unit:
+            val = int(match_num.group())
+            if 's' in raw_t: parsed_sec = val
+            elif 'm' in raw_t: parsed_sec = val * 60
+            elif 'h' in raw_t: parsed_sec = val * 3600
+            elif 'd' in raw_t: parsed_sec = val * 86400
+            elif 'mo' in raw_t: parsed_sec = val * 2592000
+            elif 'y' in raw_t: parsed_sec = val * 31536000
+
+    if parsed_sec < 30 or not has_valid_unit:
+        await msg.reply_text("❌ <b>Invalid duration!</b> Minimum duration is 30 seconds (e.g. 10 min, 3 months). Try again:", parse_mode="HTML")
+        user_states[state_key] = state  # Keep waiting state active
+        return True
+
+    cfg = get_config(chat_id)
+    cfg["flood_duration_sec"] = parsed_sec
+    cfg["flood_duration_str"] = text.strip()
+    save_config(chat_id, cfg)
+
+    try:
+        await msg.delete()
+    except Exception:
+        pass
+
+    if msg.reply_to_message:
+        try:
+            await context.bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=msg.reply_to_message.message_id,
+                text=f"✅ Antiflood duration successfully set to <b>{text.strip()}</b>!\n\n{get_antiflood_text(chat_id)}",
+                reply_markup=get_antiflood_main_keyboard(chat_id),
+                parse_mode="HTML"
+            )
+            return True
+        except Exception:
+            pass
+
+    await msg.reply_text(
+        f"✅ Antiflood duration successfully set to <b>{text.strip()}</b>!",
+        reply_markup=get_antiflood_main_keyboard(chat_id),
+        parse_mode="HTML"
+    )
+    return True
