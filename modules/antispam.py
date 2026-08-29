@@ -5,53 +5,46 @@ from database import get_config, save_config, get_user_warns, set_user_warns
 from utils import create_btn, fast_edit
 
 # Custom Smart Duration Parser
-def parse_duration_smart(text: str) -> int:
+def parse_duration_smart(text: str) -> tuple:
     raw = text.strip().lower()
-    
-    # Unit normalization
     raw = re.sub(r'\bmis\b|\bmi\b', 'min', raw)
-    
-    valid_units = ['sec', 'second', 'secs', 'seconds', 'min', 'mins', 'minute', 'minutes', 
-                   'hr', 'hrs', 'hour', 'hours', 'day', 'days', 'month', 'months', 
-                   'yr', 'yrs', 'year', 'years', 's', 'm', 'h', 'd', 'mo', 'y']
     
     matches = re.findall(r'(\d+)\s*([a-zA-Z]+)', raw)
     if not matches:
-        # Fallback for single numbers with attached units (e.g. 10m, 30s)
         match_single = re.match(r'^(\d+)([a-zA-Z]+)$', raw)
         if match_single:
             matches = [(match_single.group(1), match_single.group(2))]
         else:
-            return 0
+            return 0, ""
 
     total_seconds = 0
-    matched_any = False
+    formatted_parts = []
 
     for val_str, unit in matches:
         val = int(val_str)
         unit = unit.lower()
         if unit in ['s', 'sec', 'secs', 'second', 'seconds']:
             total_seconds += val
-            matched_any = True
+            formatted_parts.append(f"{val} Seconds")
         elif unit in ['m', 'min', 'mins', 'minute', 'minutes']:
             total_seconds += val * 60
-            matched_any = True
+            formatted_parts.append(f"{val} Minutes")
         elif unit in ['h', 'hr', 'hrs', 'hour', 'hours']:
             total_seconds += val * 3600
-            matched_any = True
+            formatted_parts.append(f"{val} Hours")
         elif unit in ['d', 'day', 'days']:
             total_seconds += val * 86400
-            matched_any = True
+            formatted_parts.append(f"{val} Days")
         elif unit in ['mo', 'month', 'months']:
             total_seconds += val * 2592000
-            matched_any = True
+            formatted_parts.append(f"{val} Months")
         elif unit in ['y', 'yr', 'yrs', 'year', 'years']:
             total_seconds += val * 31536000
-            matched_any = True
+            formatted_parts.append(f"{val} Years")
 
-    return total_seconds if matched_any else 0
+    return total_seconds, " ".join(formatted_parts)
 
-# Penalty Button Grid with Theme Styling
+# Penalty Grid with Colors
 def make_styled_penalty_grid(prefix: str, current_val: str, cid: int):
     val = current_val or "Off"
     
@@ -95,7 +88,7 @@ def get_tglinks_keyboard(cid: int):
     keyboard = [r1, r2]
     
     if p in ["Warn", "Mute", "Ban"]:
-        keyboard.append([create_btn(f"! ⏰ Set {p} duration", callback_data=f"astgset_dur_{p}_{cid}", style="primary")])
+        keyboard.append([create_btn(f"! ⏰ Set {p} duration", callback_data=f"astgset_dur_{p}_{cid}")])
 
     keyboard.extend([
         [create_btn(f"🗑 Delete Messages {del_icon}", callback_data=f"astgtog_del_{cid}")],
@@ -131,7 +124,7 @@ def get_totlinks_keyboard(cid: int):
     keyboard = [r1, r2]
 
     if p in ["Warn", "Mute", "Ban"]:
-        keyboard.append([create_btn(f"! ⏰ Set {p} duration", callback_data=f"astotset_dur_{p}_{cid}", style="primary")])
+        keyboard.append([create_btn(f"! ⏰ Set {p} duration", callback_data=f"astotset_dur_{p}_{cid}")])
 
     keyboard.extend([
         [create_btn(f"🗑 Delete Messages {del_icon}", callback_data=f"astottog_del_{cid}")],
@@ -279,13 +272,13 @@ async def handle_antispam_callbacks(query, data: str, cid: int, user, user_state
         await fast_edit(query, get_tglinks_text(cid), get_tglinks_keyboard(cid))
     elif data.startswith("astgset_dur_"):
         ptype = data.split("_")[2]
-        user_states[(cid, user.id)] = f"awaiting_as_tg_dur_{ptype}"
+        user_states[(cid, user.id)] = f"awaiting_as_tg_dur_{ptype}_{query.message.message_id}"
         dur_str = cfg.get("as_tg_duration_str", "Off")
         text = (
             f"Send now the duration of the chosen punishment ({ptype})\n\n"
             f"<b>Minimum:</b> 30 seconds\n<b>Maximum:</b> 365 days\n\n"
-            f"<b>Example of format:</b> 10 min, 3 months, 2 years, 30s\n\n"
-            f"<b>Current duration:</b> {dur_str}"
+            f"<b>Example of format:</b> 3 month 2 days 12 hours 4 minutes 34 seconds\n\n"
+            f"<b>Current duration:</b> {dur_str or 'Off'}"
         )
         kb = [
             [create_btn("0️⃣ Remove duration", callback_data=f"astgrem_dur_{cid}")],
@@ -314,13 +307,13 @@ async def handle_antispam_callbacks(query, data: str, cid: int, user, user_state
         await fast_edit(query, get_totlinks_text(cid), get_totlinks_keyboard(cid))
     elif data.startswith("astotset_dur_"):
         ptype = data.split("_")[2]
-        user_states[(cid, user.id)] = f"awaiting_as_tot_dur_{ptype}"
+        user_states[(cid, user.id)] = f"awaiting_as_tot_dur_{ptype}_{query.message.message_id}"
         dur_str = cfg.get("as_tot_duration_str", "Off")
         text = (
             f"Send now the duration of the chosen punishment ({ptype})\n\n"
             f"<b>Minimum:</b> 30 seconds\n<b>Maximum:</b> 365 days\n\n"
-            f"<b>Example of format:</b> 10 min, 3 months, 2 years, 30s\n\n"
-            f"<b>Current duration:</b> {dur_str}"
+            f"<b>Example of format:</b> 3 month 2 days 12 hours 4 minutes 34 seconds\n\n"
+            f"<b>Current duration:</b> {dur_str or 'Off'}"
         )
         kb = [
             [create_btn("0️⃣ Remove duration", callback_data=f"astotrem_dur_{cid}")],
@@ -364,11 +357,11 @@ async def handle_antispam_callbacks(query, data: str, cid: int, user, user_state
         wl_text = "\n".join([f"• <code>{x}</code>" for x in wl]) if wl else "<i>Whitelist is empty.</i>"
         await query.answer(f"Whitelist:\n{wl_text}", show_alert=True)
     elif data.startswith("asexc_add_"):
-        user_states[(cid, user.id)] = "awaiting_as_wl_add"
+        user_states[(cid, user.id)] = f"awaiting_as_wl_add_{query.message.message_id}"
         kb = [[create_btn("❌ Cancel", callback_data=f"as_exc_{cid}", style="danger")]]
         await fast_edit(query, "Send the username or link to add to the whitelist:\n\nExample: <code>@examplechannel</code>", InlineKeyboardMarkup(kb))
     elif data.startswith("asexc_rem_"):
-        user_states[(cid, user.id)] = "awaiting_as_wl_rem"
+        user_states[(cid, user.id)] = f"awaiting_as_wl_rem_{query.message.message_id}"
         kb = [[create_btn("❌ Cancel", callback_data=f"as_exc_{cid}", style="danger")]]
         await fast_edit(query, "Send the username or link to remove from whitelist:", InlineKeyboardMarkup(kb))
     elif data.startswith("asexc_global_"):
@@ -382,7 +375,7 @@ async def handle_antispam_callbacks(query, data: str, cid: int, user, user_state
         save_config(cid, cfg)
         await fast_edit(query, get_global_whitelist_text(cid), get_global_whitelist_keyboard(cid))
 
-# --- 7. TEXT STATE PROCESSOR (CLEAN INPUT & REFRESH) ---
+# --- 7. TEXT STATE PROCESSOR (MATCHING SCREENSHOT WITH POPUP CONFIRMATION) ---
 async def handle_antispam_text_state(update, context, user_states):
     msg = update.message
     if not msg or not msg.from_user:
@@ -401,16 +394,18 @@ async def handle_antispam_text_state(update, context, user_states):
 
     text = msg.text or ""
     cfg = get_config(chat_id)
+    parts = state.split("_")
+    panel_msg_id = int(parts[-1]) if parts[-1].isdigit() else None
 
-    # 1. Telegram links Duration
+    # 1. Telegram Links Duration
     if state.startswith("awaiting_as_tg_dur_"):
-        parsed_sec = parse_duration_smart(text)
+        parsed_sec, dur_str = parse_duration_smart(text)
         if parsed_sec < 30:
             kb = [[create_btn("❌ Cancel", callback_data=f"as_tglinks_{chat_id}", style="danger")]]
             await msg.reply_text(
                 "❌ <b>Invalid duration format!</b>\n"
                 "Minimum duration is 30 seconds.\n"
-                "<i>Example:</i> <code>10 min</code>, <code>3 months</code>, <code>2 years</code>, <code>30s</code>\n\n"
+                "<i>Example:</i> <code>10 min</code>, <code>3 month 2 days</code>, <code>30s</code>\n\n"
                 "Please try again:",
                 reply_markup=InlineKeyboardMarkup(kb),
                 parse_mode="HTML"
@@ -419,7 +414,7 @@ async def handle_antispam_text_state(update, context, user_states):
 
         user_states.pop(state_key, None)
         cfg["as_tg_duration_sec"] = parsed_sec
-        cfg["as_tg_duration_str"] = text.strip()
+        cfg["as_tg_duration_str"] = dur_str or text.strip()
         save_config(chat_id, cfg)
 
         try:
@@ -427,22 +422,32 @@ async def handle_antispam_text_state(update, context, user_states):
         except Exception:
             pass
 
-        await msg.reply_text(
-            f"✅ <b>Telegram links duration set to: {text.strip()}</b>\n\n" + get_tglinks_text(chat_id),
-            reply_markup=get_tglinks_keyboard(chat_id),
-            parse_mode="HTML"
-        )
+        # Edit prompt to "The punishment period has been set." with Back button (Exact screenshot)
+        kb = [[create_btn("⬅️ Back", callback_data=f"as_tglinks_{chat_id}")]]
+        if panel_msg_id:
+            try:
+                await context.bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=panel_msg_id,
+                    text="The punishment period has been set.",
+                    reply_markup=InlineKeyboardMarkup(kb)
+                )
+                return True
+            except Exception:
+                pass
+
+        await msg.reply_text("The punishment period has been set.", reply_markup=InlineKeyboardMarkup(kb))
         return True
 
-    # 2. Total links Duration
+    # 2. Total Links Duration
     elif state.startswith("awaiting_as_tot_dur_"):
-        parsed_sec = parse_duration_smart(text)
+        parsed_sec, dur_str = parse_duration_smart(text)
         if parsed_sec < 30:
             kb = [[create_btn("❌ Cancel", callback_data=f"as_totlinks_{chat_id}", style="danger")]]
             await msg.reply_text(
                 "❌ <b>Invalid duration format!</b>\n"
                 "Minimum duration is 30 seconds.\n"
-                "<i>Example:</i> <code>10 min</code>, <code>3 months</code>, <code>2 years</code>, <code>30s</code>\n\n"
+                "<i>Example:</i> <code>10 min</code>, <code>3 month 2 days</code>, <code>30s</code>\n\n"
                 "Please try again:",
                 reply_markup=InlineKeyboardMarkup(kb),
                 parse_mode="HTML"
@@ -451,7 +456,7 @@ async def handle_antispam_text_state(update, context, user_states):
 
         user_states.pop(state_key, None)
         cfg["as_tot_duration_sec"] = parsed_sec
-        cfg["as_tot_duration_str"] = text.strip()
+        cfg["as_tot_duration_str"] = dur_str or text.strip()
         save_config(chat_id, cfg)
 
         try:
@@ -459,15 +464,24 @@ async def handle_antispam_text_state(update, context, user_states):
         except Exception:
             pass
 
-        await msg.reply_text(
-            f"✅ <b>Total links duration set to: {text.strip()}</b>\n\n" + get_totlinks_text(chat_id),
-            reply_markup=get_totlinks_keyboard(chat_id),
-            parse_mode="HTML"
-        )
+        kb = [[create_btn("⬅️ Back", callback_data=f"as_totlinks_{chat_id}")]]
+        if panel_msg_id:
+            try:
+                await context.bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=panel_msg_id,
+                    text="The punishment period has been set.",
+                    reply_markup=InlineKeyboardMarkup(kb)
+                )
+                return True
+            except Exception:
+                pass
+
+        await msg.reply_text("The punishment period has been set.", reply_markup=InlineKeyboardMarkup(kb))
         return True
 
     # 3. Whitelist Add
-    elif state == "awaiting_as_wl_add":
+    elif state.startswith("awaiting_as_wl_add"):
         user_states.pop(state_key, None)
         wl = cfg.get("as_whitelist", [])
         clean_item = text.strip().replace("https://t.me/", "@")
@@ -475,11 +489,18 @@ async def handle_antispam_text_state(update, context, user_states):
             wl.append(clean_item)
             cfg["as_whitelist"] = wl
             save_config(chat_id, cfg)
-        await msg.reply_text(f"✅ <code>{clean_item}</code> added to Whitelist!", reply_markup=get_exceptions_keyboard(chat_id), parse_mode="HTML")
+            
+        try:
+            await msg.delete()
+        except Exception:
+            pass
+
+        kb = [[create_btn("⬅️ Back", callback_data=f"as_exc_{chat_id}")]]
+        await msg.reply_text(f"✅ <code>{clean_item}</code> added to Whitelist!", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
         return True
 
     # 4. Whitelist Remove
-    elif state == "awaiting_as_wl_rem":
+    elif state.startswith("awaiting_as_wl_rem"):
         user_states.pop(state_key, None)
         wl = cfg.get("as_whitelist", [])
         clean_item = text.strip().replace("https://t.me/", "@")
@@ -487,9 +508,14 @@ async def handle_antispam_text_state(update, context, user_states):
             wl.remove(clean_item)
             cfg["as_whitelist"] = wl
             save_config(chat_id, cfg)
-            await msg.reply_text(f"🗑 <code>{clean_item}</code> removed from Whitelist!", reply_markup=get_exceptions_keyboard(chat_id), parse_mode="HTML")
-        else:
-            await msg.reply_text(f"❌ <code>{clean_item}</code> Whitelist me nahi mila.", reply_markup=get_exceptions_keyboard(chat_id), parse_mode="HTML")
+            
+        try:
+            await msg.delete()
+        except Exception:
+            pass
+
+        kb = [[create_btn("⬅️ Back", callback_data=f"as_exc_{chat_id}")]]
+        await msg.reply_text(f"🗑 <code>{clean_item}</code> removed from Whitelist!", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
         return True
 
     return False
